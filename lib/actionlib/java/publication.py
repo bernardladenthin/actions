@@ -277,6 +277,11 @@ def snapshot_pom(package, destination, url=SNAPSHOTS):
     ET.ElementTree(root).write(destination, encoding="utf-8", xml_declaration=True)
 
 
+# The jobs of a run are listed 50 at a time: with 100 per page GitHub answered the listing of a
+# large java-llama.cpp run (~80 jobs, several attempts) with HTTP 502 in most tries, with 50 never.
+JOBS_PAGE = 50
+
+
 def superseded(repository, sha, run_id, github=None, job_name=CENTRAL_SNAPSHOT_JOB):
     """True when one of the 30 most recent dispatched runs transferred the snapshot of a newer commit.
 
@@ -294,9 +299,10 @@ def superseded(repository, sha, run_id, github=None, job_name=CENTRAL_SNAPSHOT_J
             continue
         jobs, page = [], 1
         while True:
-            batch = gh.api("GET", f"{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100&page={page}")
+            batch = gh.api("GET", f"{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page={JOBS_PAGE}"
+                                  f"&page={page}")
             jobs.extend(batch["jobs"])
-            if len(batch["jobs"]) < 100:
+            if len(batch["jobs"]) < JOBS_PAGE:
                 break
             page += 1
         if not any(job["name"] == job_name and job["conclusion"] == "success" for job in jobs):

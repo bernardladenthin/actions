@@ -12,8 +12,8 @@ from unittest.mock import patch
 import xml.etree.ElementTree as ET
 import zipfile
 
-from actionlib.java.publication import (CENTRAL_SNAPSHOT_JOB, central_name, check_ref, prepare, snapshot_pom,
-                                    superseded, upload, verify)
+from actionlib.java.publication import (CENTRAL_SNAPSHOT_JOB, JOBS_PAGE, central_name, check_ref, prepare,
+                                    snapshot_pom, superseded, upload, verify)
 from tests.helpers import REPO
 
 
@@ -375,7 +375,7 @@ class FakeRuns:
                                       {"id": 12, "head_sha": "b" * 40}]}
         if "/actions/runs/12/jobs?" in endpoint:
             if endpoint.endswith("page=1"):
-                return {"jobs": [{"name": f"job {i}", "conclusion": "success"} for i in range(100)]}
+                return {"jobs": [{"name": f"job {i}", "conclusion": "success"} for i in range(JOBS_PAGE)]}
             return {"jobs": [{"name": self.job, "conclusion": self.conclusion}] if self.newer_published else []}
         if "/compare/" in endpoint:
             return {"status": self.status}
@@ -394,6 +394,8 @@ class SupersededTest(unittest.TestCase):
         # Its own run and other runs of the same commit are never asked about their jobs.
         self.assertFalse(any("/runs/10/jobs" in c or "/runs/11/jobs" in c for c in gh.calls))
         self.assertTrue(any(c.endswith("page=2") for c in gh.calls))
+        # 100 per page made GitHub answer HTTP 502 for a large run.
+        self.assertTrue(all("per_page=50&" in c for c in gh.calls if "/jobs?" in c))
         self.assertTrue(any(c.endswith("/compare/" + "a" * 40 + "..." + "b" * 40) for c in gh.calls))
 
     def test_older_divergent_unfinished_or_failed_runs_do_not_supersede(self):

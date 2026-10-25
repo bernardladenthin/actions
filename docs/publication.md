@@ -133,7 +133,11 @@ files; transport manifests and Central repository directories are not release at
 The rolling snapshot pre-release holds exactly the current upload: no older commit or run over a
 newer one, obsolete assets pruned only after a complete upload, and the first snapshot of a
 repository is a draft until its upload is complete, so a failed first upload leaves neither a
-public pre-release nor a tag.
+public pre-release nor a tag. The `snapshot` tag is moved with `PATCH git/refs`. GitHub refused that
+move with HTTP 403 ("Resource not accessible by integration") in java-llama.cpp run 40227501358,
+whose commit lay 12 changed workflow files past the old tag -- presumably the `workflows` permission
+the workflow token cannot hold. A 403 there deletes the tag and creates it again at the new commit,
+and the release update names the tag again.
 
 The attestation action verifies the downloaded manifest first, then attests every frozen file in
 `publication-package/github/*`, including detached signatures and configured BOMs. It runs in the
@@ -152,7 +156,9 @@ and the transfer is skipped when one of the 30 most recent dispatched runs alrea
 snapshot of a newer commit (one that descends from this run's; the job is found by the name the
 `job-name` input gives); Central serves the snapshot transferred last as the latest. The job reads
 the runs with `actions: read` and nothing else. Maven maintains snapshot timestamps and metadata;
-signatures are transferred in the same component request with their proper extensions. There are
+signatures are transferred in the same component request with their proper extensions. The jobs of
+a run are listed 50 per page (with 100, GitHub answered a large run with HTTP 502), and every
+GitHub read of these actions is repeated three times on a server error or a dropped stream. There are
 no source build phases. For a POM-only component its signature is the primary transfer artifact
 and the signed POM is supplied through `pomFile`, avoiding an empty-classifier parameter edge case.
 
