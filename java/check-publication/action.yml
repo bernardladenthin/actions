@@ -1,0 +1,35 @@
+# SPDX-FileCopyrightText: 2026 Bernard Ladenthin <bernard.ladenthin@gmail.com>
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+name: Check the publication setup
+description: >-
+  Two checks a real publication would otherwise be the first to run: the publication jobs of the
+  publish workflow are wired to the actions as docs/publication.md describes (the
+  publication-wiring section of .github/actions-config.json), and the release asset contract
+  collects exactly what it promises when every expected output is faked in a scratch copy (a dry
+  run over the real POMs and release-assets.json, no build). See lib/actionlib/java/wiring.py
+  and releaseassets.py.
+inputs:
+  config:
+    description: Configuration file, relative to the repository (default .github/actions-config.json).
+    required: false
+    default: ''
+  assets-config:
+    description: The release asset contract, relative to the repository (default .github/release-assets.json).
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - name: Publication jobs are wired to the actions
+      shell: bash
+      env:
+        PYTHONPATH: ${{ github.action_path }}/../../lib
+        CONFIG: ${{ inputs.config }}
+      run: python3 -m actionlib.java.wiring ${CONFIG:+--config "$CONFIG"}
+    - name: The release asset contract collects what it promises (dry run)
+      shell: bash
+      env:
+        PYTHONPATH: ${{ github.action_path }}/../../lib
+        CONFIG: ${{ inputs.assets-config }}
+      run: python3 -m actionlib.java.releaseassets --dry-run ${CONFIG:+--config "$CONFIG"}

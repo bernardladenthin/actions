@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: 2026 Bernard Ladenthin <bernard.ladenthin@gmail.com>
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+name: Check the release gate
+description: >-
+  Fails when a job of the publish workflow gates no publish job and its exemptions file does not
+  say why, or when an exemption is stale. Workflow, publish jobs and exemptions file are the
+  release-gate section of .github/actions-config.json. See lib/actionlib/common/releasegate.py.
+inputs:
+  config:
+    description: Configuration file, relative to the repository (default .github/actions-config.json).
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        PYTHONPATH: ${{ github.action_path }}/../../lib
+        CONFIG: ${{ inputs.config }}
+      run: python3 -m actionlib.common.releasegate ${CONFIG:+--config "$CONFIG"}

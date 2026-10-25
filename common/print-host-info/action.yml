@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: 2026 Bernard Ladenthin <bernard.ladenthin@gmail.com>
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+name: Print host info
+description: >-
+  Prints the runner's CPU (model, instruction sets, cores) so a native build or test log can be
+  read against the hardware. Informational, never fails; Linux, macOS and Windows (Git Bash).
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: bash "$GITHUB_ACTION_PATH/print-host-info.sh"

@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: 2026 Bernard Ladenthin <bernard.ladenthin@gmail.com>
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+name: Verify the GPG signing key
+description: >-
+  Imports the armored signing key into an ephemeral keyring and signs and verifies a throwaway
+  payload with the passphrase -- what maven-gpg-plugin does at deploy time -- so a bad or expired
+  key or a wrong passphrase is caught in seconds. Prints only public key metadata; red by design
+  where the secret is not delivered (forks, other branches). See verify-signing-key.sh.
+inputs:
+  private-key:
+    description: The armored secret key (pass a secret).
+    required: true
+  passphrase:
+    description: Its passphrase (pass a secret).
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GPG_PRIVATE_KEY: ${{ inputs.private-key }}
+        GPG_PASSPHRASE: ${{ inputs.passphrase }}
+      run: bash "$GITHUB_ACTION_PATH/verify-signing-key.sh"

@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: 2026 Bernard Ladenthin <bernard.ladenthin@gmail.com>
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+name: Compare Maven versions with the sibling repositories
+description: >-
+  Warns (never fails) where a dependency or plugin the POMs use is pinned in another version than
+  in a sibling repository's default branch, and where a Kotlin Gradle plugin lags the POMs' Kotlin.
+  POMs, family or siblings and ignored groups are the maven-versions section of
+  .github/actions-config.json. See lib/actionlib/java/versions.py.
+inputs:
+  config:
+    description: Configuration file, relative to the repository (default .github/actions-config.json).
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        PYTHONPATH: ${{ github.action_path }}/../../lib
+        CONFIG: ${{ inputs.config }}
+      run: python3 -m actionlib.java.versions ${CONFIG:+--config "$CONFIG"}

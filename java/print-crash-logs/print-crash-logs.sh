@@ -4,8 +4,7 @@
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
-# Cross-repo shared script -- kept BYTE-IDENTICAL in java-llama.cpp, BitcoinAddressFinder,
-# srcmorph and streambuffer (listed in each repo's .github/shared-files.sha256). The "Print crash
+# The body of the java/print-crash-logs action of bernardladenthin/actions. The "Print crash
 # logs" step of workspace/policies/ci-test-diagnostics.md section 3.1: echoes the JVM crash logs
 # of a failed test job into the job log, because an uploaded artifact is unreadable from anywhere
 # that cannot fetch from Azure Blob Storage (a phone, a restricted network, an agent sandbox).

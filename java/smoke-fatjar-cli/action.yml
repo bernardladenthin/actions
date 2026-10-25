@@ -1,0 +1,42 @@
+# SPDX-FileCopyrightText: 2026 Bernard Ladenthin <bernard.ladenthin@gmail.com>
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+name: Smoke-test a runnable fat jar
+description: >-
+  Launches a fat jar the way a user would (`java -jar <jar> <args>`, no extra JVM flags): it must
+  exit 0 and print the success marker. No release asset is attached that CI has not run. Output
+  goes to smoke-out.log / smoke-err.log in the working directory. See smoke-fatjar-cli.sh.
+inputs:
+  jar-dir:
+    description: Directory searched (recursively) for the jar.
+    required: true
+  jar-glob:
+    description: File name glob; must match exactly one jar.
+    required: true
+  work-dir:
+    description: Working directory of the run.
+    required: true
+  marker:
+    description: Extended regex that must appear in the program's output.
+    required: true
+  args:
+    description: Arguments after `-jar <jar>`, one per line.
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        JAR_DIR: ${{ inputs.jar-dir }}
+        JAR_GLOB: ${{ inputs.jar-glob }}
+        WORK_DIR: ${{ inputs.work-dir }}
+        MARKER: ${{ inputs.marker }}
+        ARGS: ${{ inputs.args }}
+      run: |
+        set -euo pipefail
+        args=()
+        while IFS= read -r argument; do
+          [ -n "$argument" ] && args+=("$argument")
+        done <<< "$ARGS"
+        bash "$GITHUB_ACTION_PATH/smoke-fatjar-cli.sh" "$JAR_DIR" "$JAR_GLOB" "$WORK_DIR" "$MARKER" "${args[@]}"

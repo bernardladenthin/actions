@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: 2026 Bernard Ladenthin <bernard.ladenthin@gmail.com>
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+name: Print JVM crash logs
+description: >-
+  Echoes the JVM crash logs of a failed test job into the job log (hs_err_pid*.log, surefire
+  dumpstreams), readable where an uploaded artifact is not. Run it under `if: failure()`; it always
+  exits 0. See print-crash-logs.sh.
+inputs:
+  modules:
+    description: Module directories to look in, separated by spaces.
+    required: false
+    default: .
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        MODULES: ${{ inputs.modules }}
+      run: |
+        read -r -a modules <<< "$MODULES"
+        bash "$GITHUB_ACTION_PATH/print-crash-logs.sh" "${modules[@]}"

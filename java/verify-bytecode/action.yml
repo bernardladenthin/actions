@@ -1,0 +1,43 @@
+# SPDX-FileCopyrightText: 2026 Bernard Ladenthin <bernard.ladenthin@gmail.com>
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+name: Verify the class-file version
+description: >-
+  Fails when a class in the given jars (or jars below the given directories) has a class-file
+  major version above max-major -- a Java 8 artifact must not ship a Java 11 class through a
+  dependency. module-info.class and META-INF/versions/** are skipped; nothing to scan is a failure.
+  See verify-bytecode-version.sh.
+inputs:
+  max-major:
+    description: The highest class-file major version allowed (52 = Java 8).
+    required: true
+  paths:
+    description: Jars or directories, one per line.
+    required: true
+  allow:
+    description: Globs `<jar-basename>:<entry-path>` to tolerate, one per line.
+    required: false
+    default: ''
+  working-directory:
+    description: Directory the paths are relative to.
+    required: false
+    default: .
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        MAX_MAJOR: ${{ inputs.max-major }}
+        PATHS: ${{ inputs.paths }}
+        ALLOW: ${{ inputs.allow }}
+      run: |
+        set -euo pipefail
+        args=(--max-major "$MAX_MAJOR")
+        while IFS= read -r pattern; do
+          [ -n "$pattern" ] && args+=(--allow "$pattern")
+        done <<< "$ALLOW"
+        while IFS= read -r path; do
+          [ -n "$path" ] && args+=("$path")
+        done <<< "$PATHS"
+        bash "$GITHUB_ACTION_PATH/verify-bytecode-version.sh" "${args[@]}"

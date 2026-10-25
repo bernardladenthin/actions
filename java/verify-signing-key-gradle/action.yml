@@ -1,0 +1,73 @@
+# SPDX-FileCopyrightText: 2026 Bernard Ladenthin <bernard.ladenthin@gmail.com>
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+name: Verify the GPG signing key through Gradle
+description: >-
+  Signs a throwaway artifact through Gradle's signing plugin with useInMemoryPgpKeys (BouncyCastle),
+  the path a Gradle publication (an Android AAR) signs with. BouncyCastle parses the armored key
+  more strictly than gpg, so this catches key problems common/verify-gpg-key does not. The project
+  is selftest/ of this action, no repository build is involved. Prints no secret material; red by
+  design where the secret is not delivered. Needs a checkout when java-version-file is used.
+inputs:
+  private-key:
+    description: The armored secret key (pass a secret).
+    required: true
+  passphrase:
+    description: Its passphrase (pass a secret).
+    required: false
+    default: ''
+  key-id:
+    description: The signing (sub)key id, if not the primary key (pass a secret).
+    required: false
+    default: ''
+  gradle-version:
+    description: The Gradle version that signs.
+    required: false
+    default: 9.8.2
+  java-version-file:
+    description: The JDK pin Gradle runs with.
+    required: false
+    default: .java-version
+  java-distribution:
+    description: The JDK distribution.
+    required: false
+    default: temurin
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
+      with:
+        java-version-file: ${{ inputs.java-version-file }}
+        distribution: ${{ inputs.java-distribution }}
+    - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6
+      with:
+        gradle-version: ${{ inputs.gradle-version }}
+    - name: Sign a throwaway artifact via useInMemoryPgpKeys (BouncyCastle)
+      shell: bash
+      env:
+        MAVEN_GPG_PRIVATE_KEY: ${{ inputs.private-key }}
+        MAVEN_GPG_PASSPHRASE: ${{ inputs.passphrase }}
+        MAVEN_GPG_KEY_ID: ${{ inputs.key-id }}
+      run: |
+        set -euo pipefail   # NOTE: deliberately NO `set -x` -- it would echo the passphrase.
+
+        if [ -z "${MAVEN_GPG_PRIVATE_KEY:-}" ]; then
+          echo "::error::The private key is empty for this run: the environment did not deliver the secret to this ref (fork PR / other branch). Nothing to verify."
+          exit 1
+        fi
+        if [ -n "${MAVEN_GPG_PASSPHRASE:-}" ]; then echo "::add-mask::${MAVEN_GPG_PASSPHRASE}"; fi
+
+        PROJ="$RUNNER_TEMP/signing-selftest"
+        rm -rf "$PROJ"
+        cp -R "$GITHUB_ACTION_PATH/selftest" "$PROJ"
+        echo "== Sign a throwaway artifact through Gradle's useInMemoryPgpKeys (BouncyCastle) =="
+        gradle --no-daemon -p "$PROJ" signMakeArtifact --stacktrace
+
+        ASC="$PROJ/build/signing-selftest.zip.asc"
+        if [ -f "$ASC" ]; then
+          echo "  Detached signature produced: $(wc -c < "$ASC") armored bytes"
+          echo "RESULT: OK -- Gradle's useInMemoryPgpKeys accepted the armored key + passphrase and produced a signature."
+        else
+          echo "::error::Gradle signing produced no .asc -- useInMemoryPgpKeys could not build a usable signatory from the key and passphrase."
+          exit 1
+        fi

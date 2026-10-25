@@ -2,13 +2,23 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
 name: Finalize signed publication
-description: Collect, verify and secure the complete signed package before any publication consumer runs.
+description: >-
+  The one gate of the signed Maven publication: collects the signed outputs the repository's
+  release-assets.json names, verifies them against the channel and the ref, freezes them into a
+  publication package (central/, github/, manifest.json) and secures it as the Actions artifact
+  signed-<channel>-assets. `complete` is true only after that upload; the consumers
+  (java/publish-central, java/publish-github, java/attest-publication) run only on it.
+  See docs/publication.md.
 inputs:
   channel:
     description: Publication channel (snapshot or release).
     required: true
   maven-assets:
     description: Optional directory containing Maven outputs preserved before a rebuild.
+    required: false
+    default: ''
+  config:
+    description: The release asset contract, relative to the repository (default .github/release-assets.json).
     required: false
     default: ''
 outputs:
@@ -22,20 +32,27 @@ runs:
       id: collect
       shell: bash
       env:
+        PYTHONPATH: ${{ github.action_path }}/../../lib
         CHANNEL: ${{ inputs.channel }}
         MAVEN_ASSETS: ${{ inputs.maven-assets }}
+        CONFIG: ${{ inputs.config }}
       run: |
         set -euo pipefail
         case "$CHANNEL" in snapshot|release) ;; *) echo "::error::Invalid publication channel"; exit 1 ;; esac
         args=("signed-${CHANNEL}-assets")
         if [ -n "$MAVEN_ASSETS" ]; then args+=(--maven-assets "$MAVEN_ASSETS"); fi
-        python3 .github/collect-release-assets.py "${args[@]}"
+        if [ -n "$CONFIG" ]; then args+=(--config "$CONFIG"); fi
+        python3 -m actionlib.java.releaseassets "${args[@]}"
     - name: Verify and freeze the complete signed publication
       id: preflight
       shell: bash
       env:
+        PYTHONPATH: ${{ github.action_path }}/../../lib
         CHANNEL: ${{ inputs.channel }}
-      run: python3 .github/publication.py prepare "signed-${CHANNEL}-assets" publication-package --channel "$CHANNEL"
+        CONFIG: ${{ inputs.config }}
+      run: >-
+        python3 -m actionlib.java.publication prepare "signed-${CHANNEL}-assets" publication-package
+        --channel "$CHANNEL" ${CONFIG:+--config "$CONFIG"}
     - name: Secure the checked publication package
       id: handoff
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

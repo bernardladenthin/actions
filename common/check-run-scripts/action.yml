@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: 2026 Bernard Ladenthin <bernard.ladenthin@gmail.com>
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+name: Check that run scripts parse
+description: >-
+  Runs bash -n over every bash run script of the workflows and composite actions, so a broken
+  script fails in the first minutes instead of in the job that runs it. The files are the
+  run-scripts patterns of .github/actions-config.json (default: the workflows and
+  .github/actions/*/action.yml). See lib/actionlib/common/runscripts.py.
+inputs:
+  config:
+    description: Configuration file, relative to the repository (default .github/actions-config.json).
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        PYTHONPATH: ${{ github.action_path }}/../../lib
+        CONFIG: ${{ inputs.config }}
+      run: python3 -m actionlib.common.runscripts ${CONFIG:+--config "$CONFIG"}

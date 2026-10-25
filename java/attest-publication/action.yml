@@ -1,0 +1,41 @@
+# SPDX-FileCopyrightText: 2026 Bernard Ladenthin <bernard.ladenthin@gmail.com>
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+name: Attest the checked publication
+description: >-
+  Downloads the frozen publication package of java/finalize-publication, verifies it and attests
+  build provenance (Sigstore) for every file of github/ -- the artifacts and their detached
+  signatures. Runs in the caller's job, so the attestation names the caller's workflow. The job
+  needs id-token: write and attestations: write.
+inputs:
+  channel:
+    description: snapshot or release.
+    required: true
+  assets-complete:
+    description: The assets_complete output of the publish job (must be 'true').
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Require the completed gate
+      shell: bash
+      env:
+        COMPLETE: ${{ inputs.assets-complete }}
+        CHANNEL: ${{ inputs.channel }}
+      run: |
+        case "$CHANNEL" in snapshot|release) ;; *) echo "::error::Invalid publication channel"; exit 1 ;; esac
+        if [ "$COMPLETE" != "true" ]; then echo "::error::the publication gate did not complete"; exit 1; fi
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+      with:
+        name: signed-${{ inputs.channel }}-assets
+        path: publication-package/
+        digest-mismatch: error
+    - name: Verify the secured package before attesting
+      shell: bash
+      env:
+        PYTHONPATH: ${{ github.action_path }}/../../lib
+      run: python3 -m actionlib.java.publication verify publication-package
+    - name: Attest the frozen artifacts and detached signatures
+      uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
+      with:
+        subject-path: publication-package/github/*

@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: 2026 Bernard Ladenthin <bernard.ladenthin@gmail.com>
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+name: Set up the shared CI library
+description: >-
+  Puts the actionlib Python library of bernardladenthin/actions on PYTHONPATH and exports the
+  checkout of this repository as ACTIONS_DIR, for a repository's own build checks that build on
+  actionlib and for Maven builds that run one of its tools (the license collector).
+outputs:
+  dir:
+    description: The checkout of bernardladenthin/actions at the ref the step names.
+    value: ${{ steps.setup.outputs.dir }}
+runs:
+  using: composite
+  steps:
+    - id: setup
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        dir="$(cd "$ACTION_PATH/../.." && pwd)"
+        separator=":"
+        if [ "${RUNNER_OS:-}" = "Windows" ]; then
+          dir="$(cygpath -w "$dir")"
+          separator=";"
+        fi
+        echo "ACTIONS_DIR=$dir" >> "$GITHUB_ENV"
+        echo "PYTHONPATH=$dir/lib${PYTHONPATH:+$separator$PYTHONPATH}" >> "$GITHUB_ENV"
+        echo "dir=$dir" >> "$GITHUB_OUTPUT"
+        echo "actionlib at $dir/lib"

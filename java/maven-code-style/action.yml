@@ -1,0 +1,46 @@
+# SPDX-FileCopyrightText: 2026 Bernard Ladenthin <bernard.ladenthin@gmail.com>
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+name: Maven code style and package graph
+description: >-
+  Fails fast on format violations (spotless:check) and static-analysis findings (spotbugs:check,
+  which binds to verify and so is not run by test or package), then prints the internal package
+  dependency graph (jdeps, informational). Needs a checkout; the spotless and spotbugs plugins
+  come from the project's POM.
+inputs:
+  package-pattern:
+    description: Regex for the packages the jdeps graph shows (grep -E over its lines), e.g. net\.ladenthin\.
+    required: true
+  classes:
+    description: The compiled classes jdeps reads.
+    required: false
+    default: target/classes
+  java-version-file:
+    description: The JDK pin.
+    required: false
+    default: .java-version
+  java-distribution:
+    description: The JDK distribution.
+    required: false
+    default: temurin
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
+      with:
+        java-version-file: ${{ inputs.java-version-file }}
+        distribution: ${{ inputs.java-distribution }}
+    - name: Spotless check (fail fast on format violations)
+      shell: bash
+      run: mvn -B --no-transfer-progress spotless:check
+    - name: SpotBugs check (fail fast on static-analysis findings)
+      shell: bash
+      run: mvn -B --no-transfer-progress -DskipTests -Denforcer.skip=true compile spotbugs:check
+    - name: Print internal package dependency graph (jdeps, informational)
+      shell: bash
+      env:
+        PATTERN: ${{ inputs.package-pattern }}
+        CLASSES: ${{ inputs.classes }}
+      run: |
+        echo "=== internal package dependency graph (jdeps, bytecode) ==="
+        jdeps -verbose:package "$CLASSES" | grep -E "$PATTERN" || true

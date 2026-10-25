@@ -4,9 +4,8 @@
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
-# Cross-repo shared script -- kept BYTE-IDENTICAL in java-llama.cpp, BitcoinAddressFinder,
-# srcmorph and streambuffer (listed in each repo's .github/shared-files.sha256). The body of the
-# `verify-signing-key` job: reproduces what maven-gpg-plugin does at deploy time, so a bad or
+# The body of the common/verify-gpg-key action of bernardladenthin/actions, which the
+# `verify-signing-key` job of each repository runs: reproduces what maven-gpg-plugin does at deploy time, so a bad or
 # expired key or a wrong passphrase is caught in seconds instead of failing the publish stage.
 #
 # Input: GPG_PRIVATE_KEY (armored secret key) and GPG_PASSPHRASE in the environment.

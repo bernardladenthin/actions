@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: 2026 Bernard Ladenthin <bernard.ladenthin@gmail.com>
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+name: Check the version against the ref
+description: >-
+  A release publishes only from the tag v<version> of a version without -SNAPSHOT, a snapshot only
+  a -SNAPSHOT version and never from a tag. Reads the reactor version the release asset contract
+  describes. Needs a checkout.
+inputs:
+  channel:
+    description: snapshot or release.
+    required: true
+  config:
+    description: The release asset contract, relative to the repository (default .github/release-assets.json).
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        PYTHONPATH: ${{ github.action_path }}/../../lib
+        CHANNEL: ${{ inputs.channel }}
+        CONFIG: ${{ inputs.config }}
+      run: python3 -m actionlib.java.publication check-ref --channel "$CHANNEL" ${CONFIG:+--config "$CONFIG"}

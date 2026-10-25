@@ -1,0 +1,67 @@
+# SPDX-FileCopyrightText: 2026 Bernard Ladenthin <bernard.ladenthin@gmail.com>
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+name: Publish the checked files on GitHub
+description: >-
+  Downloads the frozen publication package of java/finalize-publication, verifies it and attaches
+  its github/ files: a release to the release of the tag, a snapshot to the rolling snapshot
+  pre-release (no older commit or run over a newer one, obsolete assets pruned only after a
+  complete upload, a first snapshot is a draft until then). Nothing is rebuilt or re-signed.
+  The job needs contents: write and, for a snapshot, a concurrency group of its own.
+inputs:
+  channel:
+    description: snapshot or release.
+    required: true
+  assets-complete:
+    description: The assets_complete output of the publish job (must be 'true').
+    required: true
+  github-token:
+    description: Token for the release API.
+    required: false
+    default: ${{ github.token }}
+  snapshot-tag:
+    description: The tag of the rolling snapshot pre-release.
+    required: false
+    default: snapshot
+  snapshot-title:
+    description: The title of the rolling snapshot pre-release.
+    required: false
+    default: Snapshot (latest)
+runs:
+  using: composite
+  steps:
+    - name: Require the completed gate
+      shell: bash
+      env:
+        COMPLETE: ${{ inputs.assets-complete }}
+        CHANNEL: ${{ inputs.channel }}
+      run: |
+        case "$CHANNEL" in snapshot|release) ;; *) echo "::error::Invalid publication channel"; exit 1 ;; esac
+        if [ "$COMPLETE" != "true" ]; then echo "::error::the publication gate did not complete"; exit 1; fi
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+      with:
+        name: signed-${{ inputs.channel }}-assets
+        path: publication-package/
+        digest-mismatch: error
+    - name: Verify transport integrity and export checked GitHub files
+      shell: bash
+      env:
+        PYTHONPATH: ${{ github.action_path }}/../../lib
+        CHANNEL: ${{ inputs.channel }}
+      run: python3 -m actionlib.java.publication verify publication-package --export-github "${CHANNEL}-assets"
+    - name: Update snapshot assets, source tag and notes
+      if: inputs.channel == 'snapshot'
+      shell: bash
+      env:
+        PYTHONPATH: ${{ github.action_path }}/../../lib
+        GH_TOKEN: ${{ inputs.github-token }}
+        ASSETS_COMPLETE: ${{ inputs.assets-complete }}
+        TAG: ${{ inputs.snapshot-tag }}
+        TITLE: ${{ inputs.snapshot-title }}
+      run: python3 -m actionlib.common.snapshot snapshot-assets --tag "$TAG" --title "$TITLE"
+    - name: Upload release assets
+      if: inputs.channel == 'release'
+      uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
+      with:
+        files: release-assets/*
+        token: ${{ inputs.github-token }}

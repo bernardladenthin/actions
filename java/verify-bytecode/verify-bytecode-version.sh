@@ -4,9 +4,7 @@
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
-# Cross-repo shared script — kept BYTE-IDENTICAL in java-llama.cpp, srcmorph,
-# BitcoinAddressFinder and streambuffer (listed in each repo's .github/shared-files.sha256, which
-# the `shared-files` job checks: sync any edit to all four, then `check-shared-files.py --write`).
+# The body of the java/verify-bytecode action of bernardladenthin/actions.
 # Fails when a built jar contains a class file newer than the Java
 # release the artifact claims to support.
 #
