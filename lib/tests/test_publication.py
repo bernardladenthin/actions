@@ -215,6 +215,8 @@ class PublicationTest(PublicationFixture):
         (gradle / "maven-metadata.xml").write_text("<metadata/>")
         (gradle.parent / "maven-metadata.xml.sha1").write_text("regenerated")
         (self.root / "target/central-deferred/.index").write_text("plugin bookkeeping")
+        # central-publishing 0.12.0 installs into central-deferred, resolver note included.
+        (self.stage / "_remote.repositories").write_text("demo-1-SNAPSHOT.jar>=\n")
         self.freeze()
         files = verify(self.package)["files"]
         self.assertIn("central/local/test/mobile/1-SNAPSHOT/mobile-1-SNAPSHOT.aar.asc", files)
