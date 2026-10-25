@@ -68,6 +68,16 @@ the srcmorph CLI run it before packaging, as `python3 -m actionlib.java.thirdpar
 `lib/` of this repository on `PYTHONPATH`: the POMs find this repository through `ACTIONS_DIR`
 (exported by `common/setup` and by the reusable SonarQube workflow) or, locally, as a checkout
 next to the repository (`../actions`); Python 3.9+ is needed on that build host.
+
+Both POMs do not call `-m` directly but wrap it in a `python3 -c` one-liner, so that a missing
+checkout says where `actionlib` was looked for instead of raising a `ModuleNotFoundError`. **The
+Python string literals in that one-liner must be single-quoted.** `exec-maven-plugin` drops a double
+quote out of an argument on Windows (measured with 3.6.4: `print("x")` reaches Python as `print(x)`),
+so the double-quoted form makes those repositories unbuildable there with a `SyntaxError` while the
+Linux CI stays green and never shows it. Escaping as `\"` survives Windows but breaks Linux, where
+the argument reaches `execve` verbatim and Python then sees the backslashes; single quotes are valid
+Python and survive both. Each POM carries a comment to that effect at the execution.
+
 No network requests or approvals are made. A JAR with no legal entries of its own gets the
 upstream texts the repository commits for it (`--supplemental third-party-notices`: `notices.json`
 maps JAR base names to folders, `SOURCES.tsv` records each text's source URL and SHA-256; listed as
