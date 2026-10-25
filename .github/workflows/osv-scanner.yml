@@ -2,15 +2,12 @@
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
+# OSV-Scanner over the calling repository: Google's reusable workflows, the PR variant on pull
+# requests (only new findings), the full scan otherwise. The event is the caller's.
+# Caller: templates/common/.github/workflows/osv-scanner.yml (it grants security-events: write).
 name: OSV-Scanner
 on:
-  pull_request:
-    branches: [ main ]
-  push:
-    branches: [ main ]
-  schedule:
-    - cron: '0 6 * * 1'
-  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -23,7 +20,6 @@ jobs:
       actions: read
       contents: read
       security-events: write
-
   scan-pr:
     if: ${{ github.event_name == 'pull_request' }}
     uses: "google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@b1d267aea5211fa648d9d442fa64b90dbdcbdd36" # v2.7.0

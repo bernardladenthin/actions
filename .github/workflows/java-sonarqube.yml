@@ -2,13 +2,33 @@
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
+# SonarQube Cloud analysis of the calling Maven repository (`mvn verify` + the sonar goal).
+# Caller: templates/java/.github/workflows/sonarqube.yml, which passes SONAR_TOKEN.
+#
+# The build may run a tool of this repository (the license collector of a fat jar), so this
+# repository is checked out at the commit of this workflow and exported as ACTIONS_DIR, as
+# common/setup does for a job of the caller.
 name: SonarQube
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    types: [opened, synchronize, reopened]
+  workflow_call:
+    inputs:
+      project-key:
+        description: The SonarQube Cloud project key (default <owner>_<repository>).
+        type: string
+        required: false
+        default: ''
+      java-distribution:
+        description: The JDK distribution (the version is the caller's .java-version).
+        type: string
+        required: false
+        default: zulu
+    secrets:
+      SONAR_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build and analyze
@@ -17,11 +37,21 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+          persist-credentials: false
+      - name: Check out the shared actions at this workflow's commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-actions
+          persist-credentials: false
+      - name: Export ACTIONS_DIR
+        run: echo "ACTIONS_DIR=$GITHUB_WORKSPACE/.ci-actions" >> "$GITHUB_ENV"
       - name: Set up build JDK from .java-version
         uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
         with:
           java-version-file: .java-version
-          distribution: 'zulu'
+          distribution: ${{ inputs.java-distribution }}
       - name: Cache SonarQube packages
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
@@ -37,4 +67,5 @@ jobs:
       - name: Build and analyze
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: mvn -B --no-transfer-progress verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=bernardladenthin_streambuffer
+          PROJECT_KEY: ${{ inputs.project-key || format('{0}_{1}', github.repository_owner, github.event.repository.name) }}
+        run: mvn -B --no-transfer-progress verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar "-Dsonar.projectKey=$PROJECT_KEY"

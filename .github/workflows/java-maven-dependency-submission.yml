@@ -1,21 +1,30 @@
 # SPDX-FileCopyrightText: 2026 Bernard Ladenthin <bernard.ladenthin@gmail.com>
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
+# Submits the calling repository's Maven dependency graph, resolved with its own build JDK (GitHub's
+# automatic submission uses a JDK of its choosing and fails on a toolchain it lacks).
+# Caller: templates/java/.github/workflows/dependency-submission.yml -- push on the default branch
+# only: the graph GitHub shows is the default branch's, and other branches (Dependabot's among them,
+# whose pushes get a read-only token) would only fail or add snapshots nobody reads.
 name: Maven Dependency Submission
 on:
-  # The graph GitHub shows is the default branch's. Other branches (Dependabot's among them, whose
-  # pushes get a read-only token) would only fail or add snapshots nobody reads.
-  push:
-    branches: [ main ]
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      maven-args:
+        description: Extra Maven arguments for the dependency resolution.
+        type: string
+        required: false
+        default: -Denforcer.skip=true -DskipTests
+
 permissions:
   contents: read
+
 jobs:
   submit:
     name: Submit Maven dependencies with the build JDK
     runs-on: ubuntu-latest
-    # The dependency-submission API requires contents:write. This workflow runs on
-    # repository pushes, never on pull_request or pull_request_target events.
+    # The dependency-submission API requires contents:write. The caller runs on repository
+    # pushes, never on pull_request or pull_request_target events.
     permissions:
       contents: write
     steps:
@@ -30,4 +39,4 @@ jobs:
       # Same action revision as GitHub's automatic Maven submission, with explicit JDK setup.
       - uses: actions/maven-dependency-submission-action@1f666f7ac2ab7b72cd5e22eaf7f23c8a581db1db
         with:
-          maven-args: -Denforcer.skip=true -DskipTests
+          maven-args: ${{ inputs.maven-args }}

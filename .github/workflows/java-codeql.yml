@@ -2,14 +2,23 @@
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
-name: CodeQL
+# CodeQL over the Java sources of the calling repository, built with Maven.
+# Caller: templates/java/.github/workflows/codeql.yml (it grants security-events: write).
+name: CodeQL (Java)
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  schedule:
-    - cron: "12 1 * * 0"
+  workflow_call:
+    inputs:
+      build-command:
+        description: The command that compiles the sources CodeQL traces.
+        type: string
+        required: false
+        default: mvn --batch-mode --no-transfer-progress compile
+      java-distribution:
+        description: The JDK distribution (the version is the caller's .java-version).
+        type: string
+        required: false
+        default: temurin
+
 jobs:
   analyze:
     runs-on: ubuntu-latest
@@ -19,13 +28,22 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      # The build JDK comes from the shared .java-version. Production and test
+        with:
+          persist-credentials: false
+      # The build JDK comes from the repository's .java-version. Production and test
       # bytecode releases remain explicitly configured in the Maven POMs.
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
-        with: { java-version-file: .java-version, distribution: temurin }
+        with:
+          java-version-file: .java-version
+          distribution: ${{ inputs.java-distribution }}
       - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
-        with: { languages: java, queries: +security-and-quality }
-      - name: Build with Maven
-        run: mvn --batch-mode --no-transfer-progress compile
+        with:
+          languages: java
+          queries: +security-and-quality
+      - name: Build
+        env:
+          BUILD_COMMAND: ${{ inputs.build-command }}
+        run: bash -c "$BUILD_COMMAND"
       - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
-        with: { category: "/language:java" }
+        with:
+          category: "/language:java"

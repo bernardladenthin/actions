@@ -3,7 +3,7 @@ name: Bug report
 about: Report a defect that can be reproduced
 title: "[bug] "
 labels: bug
-assignees: bernardladenthin
+assignees: {{owner}}
 ---
 
 ## Description
