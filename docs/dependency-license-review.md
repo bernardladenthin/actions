@@ -64,7 +64,10 @@ For fat JARs inspect `META-INF/third-party/dependencies/inventory.json` and comp
 copied legal entries with the original JAR bytes. The collector reads the resolved runtime
 classpath, preserves classifiers and distinguishes equal filenames by content hash.
 It never treats a `LICENSE.class` bytecode file as a text license. BAF's assembly profile and
-the srcmorph CLI run it before packaging; Python 3.8+ is needed on that build host.
+the srcmorph CLI run it before packaging, as `python3 -m actionlib.java.thirdpartylicenses` with
+`lib/` of this repository on `PYTHONPATH`: the POMs find this repository through `ACTIONS_DIR`
+(exported by `common/setup` and by the reusable SonarQube workflow) or, locally, as a checkout
+next to the repository (`../actions`); Python 3.9+ is needed on that build host.
 No network requests or approvals are made. A JAR with no legal entries of its own gets the
 upstream texts the repository commits for it (`--supplemental third-party-notices`: `notices.json`
 maps JAR base names to folders, `SOURCES.tsv` records each text's source URL and SHA-256; listed as

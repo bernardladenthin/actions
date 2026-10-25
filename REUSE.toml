@@ -1,0 +1,22 @@
+version = 1
+
+# Code and configuration of this repository: the same license as the .github directories of the
+# repositories it serves, so a file can move between them without a second header.
+[[annotations]]
+path = [
+    "README.md",
+    "docs/**",
+    "families/**",
+    ".github/actions-config.json",
+]
+SPDX-FileCopyrightText = "2026 Bernard Ladenthin <bernard.ladenthin@gmail.com>"
+SPDX-License-Identifier = "MIT OR Apache-2.0"
+
+# The templates carry their own headers where their format allows one; the rest (Markdown that
+# GitHub renders, license texts, one-line pins, CITATION.cff) take the license the repositories
+# give them.
+[[annotations]]
+path = "templates/**"
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 Bernard Ladenthin <bernard.ladenthin@gmail.com>"
+SPDX-License-Identifier = "MIT OR Apache-2.0"

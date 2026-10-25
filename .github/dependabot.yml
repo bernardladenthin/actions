@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: 2026 Bernard Ladenthin <bernard.ladenthin@gmail.com>
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+# The pins of the reusable workflows (/), of every composite action (a directory each) and of the
+# workflow templates. A bump here reaches a repository when Dependabot there bumps its pin of
+# bernardladenthin/actions to the next release.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directories:
+      - "/"
+      - "/common/*"
+      - "/java/*"
+      - "/templates/*"
+    schedule:
+      interval: "weekly"
