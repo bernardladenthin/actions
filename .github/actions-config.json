@@ -1,0 +1,11 @@
+{
+  "$comment": "This repository runs its own checks on itself (.github/workflows/ci.yml): bash -n over the run scripts of its actions, its reusable workflows and the workflow templates.",
+  "run-scripts": {
+    "patterns": [
+      ".github/workflows/*.yml",
+      "common/*/action.yml",
+      "java/*/action.yml",
+      "templates/*/.github/workflows/*.yml"
+    ]
+  }
+}

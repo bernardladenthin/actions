@@ -3,13 +3,15 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
 import io
+import json
 import os
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
-from buildcheck import versions
-from buildcheck.tests.helpers import REPO
+from actionlib.java import versions
+from tests.helpers import REPO
 
 
 def pom(body, properties=""):
@@ -38,7 +40,7 @@ CHILD = pom("""<dependencies>
 class CoordinatesTest(unittest.TestCase):
 
     def test_reads_plugins_dependencies_and_processor_paths_with_properties_resolved(self):
-        self.assertEqual(versions.coordinates([PARENT, CHILD]), {
+        self.assertEqual(versions.coordinates([PARENT, CHILD], ["net.ladenthin"]), {
             "org.junit.jupiter:junit-jupiter": {"6.1.3"},
             "a:nested": {"6.1.3"},
             "org.apache.maven.plugins:maven-jar-plugin": {"3.5.0"},
@@ -91,70 +93,128 @@ class GradleKotlinTest(unittest.TestCase):
 
 
 class MainTest(unittest.TestCase):
+    """main() over a repository with its configuration; the siblings come through the fetcher."""
 
-    def run_main(self, siblings):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = self.temp.name
+        os.makedirs(os.path.join(self.root, ".github"))
+        os.makedirs(os.path.join(self.root, "child"))
+        with open(os.path.join(self.root, "pom.xml"), "w") as f:
+            f.write(PARENT)
+        with open(os.path.join(self.root, "child", "pom.xml"), "w") as f:
+            f.write(CHILD)
+        self.configure({"poms": ["pom.xml", "child/pom.xml"], "siblings": ["o/sb", "o/srcmorph", "o/baf"],
+                        "ignore-groups": ["net.ladenthin"]})
+        environment = mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/sb"})
+        environment.start()
+        self.addCleanup(environment.stop)
+
+    def configure(self, section):
+        with open(os.path.join(self.root, ".github", "actions-config.json"), "w") as f:
+            json.dump({"maven-versions": section}, f)
+
+    @staticmethod
+    def sibling(poms):
+        return json.dumps({"maven-versions": {"poms": list(poms)}})
+
+    def run_main(self, files, argv=()):
         out, err = io.StringIO(), io.StringIO()
 
         def fetcher(repo, path):
-            if repo not in siblings:
-                raise OSError("unreachable")
-            return siblings[repo]
-        with mock.patch.object(versions, "current_repo", return_value="streambuffer"), \
-                mock.patch.object(versions, "read_local", return_value=[PARENT, CHILD]):
-            code = versions.main(["x"], "/nowhere", fetcher, out, err)
+            if (repo, path) not in files:
+                raise OSError("404")
+            return files[(repo, path)]
+        code = versions.main(["--root", self.root, *argv], fetcher, out, err)
         return code, out.getvalue(), err.getvalue()
 
     def test_differences_are_warnings_and_never_fail(self):
         bumped = pom('<dependencies><dependency><groupId>org.junit.jupiter</groupId>'
                      '<artifactId>junit-jupiter</artifactId><version>6.1.4</version></dependency></dependencies>')
-        code, out, err = self.run_main({"srcmorph": bumped, "BitcoinAddressFinder": CHILD.replace(
-            "${junit.version}", "6.1.3").replace("${nested}", "6.1.3")})
+        same = CHILD.replace("${junit.version}", "6.1.3").replace("${nested}", "6.1.3")
+        code, out, err = self.run_main({
+            ("o/srcmorph", ".github/actions-config.json"): self.sibling(["pom.xml"]),
+            ("o/srcmorph", "pom.xml"): bumped,
+            ("o/baf", ".github/actions-config.json"): self.sibling(["pom.xml"]),
+            ("o/baf", "pom.xml"): same})
         self.assertEqual(code, 0)
         self.assertIn("::warning::org.junit.jupiter:junit-jupiter is 6.1.3 here and 6.1.4 in srcmorph", err)
-        self.assertIn("could not read java-llama.cpp's pom.xml", err)
-        self.assertNotIn("BitcoinAddressFinder:", err)
-        self.assertIn("1 version differences", out)
+        self.assertNotIn("in baf", err)
+        self.assertNotIn("o/sb", err)
+        self.assertIn("1 version differences (compared with baf, srcmorph)", out)
+
+    def test_a_sibling_without_a_configuration_is_a_warning(self):
+        code, out, err = self.run_main({})
+        self.assertEqual(code, 0)
+        self.assertIn("could not read o/srcmorph's .github/actions-config.json", err)
+        self.assertIn("compared with no other repository", out)
+
+    def test_a_missing_pom_skips_that_file_not_the_repository(self):
+        bumped = pom('<dependencies><dependency><groupId>org.junit.jupiter</groupId>'
+                     '<artifactId>junit-jupiter</artifactId><version>6.1.4</version></dependency></dependencies>')
+        code, _, err = self.run_main({
+            ("o/srcmorph", ".github/actions-config.json"): self.sibling(["pom.xml", "srcmorph/pom.xml"]),
+            ("o/srcmorph", "pom.xml"): bumped})
+        self.assertEqual(code, 0)
+        self.assertIn("could not read o/srcmorph's srcmorph/pom.xml", err)
+        self.assertIn("6.1.4 in srcmorph", err)
 
     def test_a_gradle_kotlin_plugin_behind_the_poms_is_reported_with_the_other_warnings(self):
         kotlin = pom('<dependencies><dependency><groupId>org.jetbrains.kotlin</groupId>'
                      '<artifactId>kotlin-stdlib</artifactId><version>2.4.21</version></dependency></dependencies>')
-        out, err = io.StringIO(), io.StringIO()
-        with mock.patch.object(versions, "current_repo", return_value="java-llama.cpp"), \
-                mock.patch.object(versions, "read_local", return_value=[kotlin]), \
-                mock.patch.object(versions, "gradle_kotlin_plugins", return_value=[
-                    ("android-llmservice/app/build.gradle.kts", "org.jetbrains.kotlin.plugin.compose", "2.4.20")]):
-            self.assertEqual(versions.main(["x"], "/nowhere", lambda repo, path: kotlin, out, err), 0)
-        self.assertIn("::warning::org.jetbrains.kotlin.plugin.compose is 2.4.20 in android-llmservice/app/build.gradle.kts "
-                      "and the POMs use Kotlin 2.4.21", err.getvalue())
-        self.assertIn("1 version differences", out.getvalue())
+        with open(os.path.join(self.root, "pom.xml"), "w") as f:
+            f.write(kotlin)
+        self.configure({"poms": ["pom.xml"], "siblings": []})
+        os.makedirs(os.path.join(self.root, "app"))
+        with open(os.path.join(self.root, "app", "build.gradle.kts"), "w") as f:
+            f.write('plugins { id("org.jetbrains.kotlin.plugin.compose") version "2.4.20" }')
+        code, out, err = self.run_main({})
+        self.assertEqual(code, 0)
+        self.assertIn("::warning::org.jetbrains.kotlin.plugin.compose is 2.4.20 in app/build.gradle.kts "
+                      "and the POMs use Kotlin 2.4.21", err)
+        self.assertIn("1 version differences", out)
 
-    def test_a_missing_pom_skips_that_file_not_the_repository(self):
-        out, err = io.StringIO(), io.StringIO()
-        bumped = pom('<dependencies><dependency><groupId>org.junit.jupiter</groupId>'
-                     '<artifactId>junit-jupiter</artifactId><version>6.1.4</version></dependency></dependencies>')
+    def test_the_family_names_the_siblings(self):
+        families = os.path.join(self.root, "families")
+        os.makedirs(families)
+        with open(os.path.join(families, "f.json"), "w") as f:
+            json.dump({"repositories": ["o/sb", "o/srcmorph"]}, f)
+        self.configure({"poms": ["pom.xml"], "family": "f"})
+        with mock.patch.object(versions, "FAMILIES", families):
+            code, out, err = self.run_main({})
+        self.assertEqual(code, 0)
+        self.assertIn("could not read o/srcmorph's", err)
+        self.assertNotIn("o/sb's", err)
+        self.configure({"poms": ["pom.xml"], "family": "nothing"})
+        with mock.patch.object(versions, "FAMILIES", families):
+            code, _, err = self.run_main({})
+        self.assertEqual(code, 2)
+        self.assertIn("no family 'nothing'; known: f", err)
 
-        def fetcher(repo, path):
-            if repo == "srcmorph" and path == "pom.xml":
-                return bumped
-            raise OSError("404")
-        with mock.patch.object(versions, "current_repo", return_value="streambuffer"), \
-                mock.patch.object(versions, "read_local", return_value=[PARENT, CHILD]):
-            self.assertEqual(versions.main(["x"], "/nowhere", fetcher, out, err), 0)
-        self.assertIn("could not read srcmorph's srcmorph/pom.xml", err.getvalue())
-        self.assertIn("6.1.4 in srcmorph", err.getvalue())
+    def test_the_configuration_is_required_and_checked(self):
+        self.configure({"family": "java-maven"})
+        code, _, err = self.run_main({})
+        self.assertEqual(code, 2)
+        self.assertIn("maven-versions: missing poms", err)
+        self.configure({"poms": ["pom.xml"], "family": "java-maven", "siblings": ["o/x"]})
+        code, _, err = self.run_main({})
+        self.assertEqual(code, 2)
+        self.assertIn("either family or siblings", err)
+        os.remove(os.path.join(self.root, ".github", "actions-config.json"))
+        code, _, err = self.run_main({})
+        self.assertEqual(code, 2)
+        self.assertIn("not found", err)
 
-    def test_arguments_are_refused(self):
-        self.assertEqual(versions.main(["x", "--offline"], REPO, err=io.StringIO()), 2)
 
+class FamilyTest(unittest.TestCase):
 
-class RepositoryTest(unittest.TestCase):
-
-    def test_this_repository_s_poms_are_listed_and_readable(self):
-        repo = versions.current_repo(REPO)
-        if repo not in versions.POMS:
-            self.skipTest(f"checked out as {repo}, not under its repository name")
-        found = versions.coordinates(versions.read_local(REPO, repo))
-        self.assertTrue(found, "no versioned coordinate found -- the POM list in versions.POMS is stale")
+    def test_the_families_of_this_repository_are_valid(self):
+        for path in sorted(Path(REPO, "families").glob("*.json")):
+            with self.subTest(path.name):
+                repositories = versions.siblings({"family": path.stem, "siblings": []})
+                self.assertTrue(repositories)
+                self.assertTrue(all(len(r.split("/")) == 2 for r in repositories))
 
 
 if __name__ == "__main__":

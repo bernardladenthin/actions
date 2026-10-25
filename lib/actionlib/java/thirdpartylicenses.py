@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # SPDX-FileCopyrightText: 2026 Bernard Ladenthin <bernard.ladenthin@gmail.com>
 # SPDX-License-Identifier: MIT OR Apache-2.0
 """Preserve legal files from resolved runtime JARs without filename collisions.
@@ -132,14 +131,14 @@ def collect(classpath, output, supplemental=None, require_complete=False):
     return entries
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog="python3 -m actionlib.java.thirdpartylicenses", description=__doc__)
     parser.add_argument("--classpath", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--supplemental", type=Path, help="directory with notices.json and the notice texts")
     parser.add_argument("--require-complete", action="store_true",
                         help="fail when a JAR has neither legal files nor a supplemental notice")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     try:
         collect(args.classpath, args.output, args.supplemental, args.require_complete)
     except (ValueError, OSError) as error:

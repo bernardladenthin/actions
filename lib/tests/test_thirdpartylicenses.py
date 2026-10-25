@@ -1,9 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Bernard Ladenthin <bernard.ladenthin@gmail.com>
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
-"""collect-third-party-licenses.py: embedded legal files, supplemental notices, completeness."""
+"""actionlib.java.thirdpartylicenses: embedded legal files, supplemental notices, completeness."""
 
-import importlib.util
 import json
 import os
 import tempfile
@@ -12,12 +11,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-from buildcheck.tests.helpers import REPO
-
-_SPEC = importlib.util.spec_from_file_location(
-    "collect_third_party_licenses", Path(REPO) / ".github/collect-third-party-licenses.py")
-licenses = importlib.util.module_from_spec(_SPEC)
-_SPEC.loader.exec_module(licenses)
+from actionlib.java import thirdpartylicenses as licenses
 
 
 class CollectTest(unittest.TestCase):

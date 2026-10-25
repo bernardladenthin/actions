@@ -2,12 +2,16 @@
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
+import contextlib
 import io
+import json
+import os
 import shutil
+import tempfile
 import unittest
 
-from buildcheck import runscripts
-from buildcheck.tests.helpers import REPO, workflow_text
+from actionlib.common import runscripts
+from tests.helpers import REPO, workflow_text
 
 BASH = shutil.which("bash")
 
@@ -110,16 +114,45 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(runscripts.check("w.yml", text), ([], 2))
 
     @unittest.skipUnless(BASH, "bash not installed")
-    def test_main_refuses_arguments(self):
-        self.assertEqual(runscripts.main(["x", "-v"], REPO, err=io.StringIO()), 2)
+    def test_main_refuses_unknown_arguments_and_config_keys(self):
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            runscripts.main(["--root", REPO, "-v"])
+        with tempfile.TemporaryDirectory() as temp:
+            os.makedirs(os.path.join(temp, ".github"))
+            with open(os.path.join(temp, ".github", "actions-config.json"), "w") as f:
+                json.dump({"run-scripts": {"pattern": ["x"]}}, f)
+            err = io.StringIO()
+            self.assertEqual(runscripts.main(["--root", temp], io.StringIO(), err), 2)
+            self.assertIn("run-scripts: unknown key(s) pattern", err.getvalue())
+
+    @unittest.skipUnless(BASH, "bash not installed")
+    def test_main_checks_the_configured_patterns(self):
+        with tempfile.TemporaryDirectory() as temp:
+            os.makedirs(os.path.join(temp, "ci", ".github"))
+            with open(os.path.join(temp, "ci", "w.yml"), "w") as f:
+                f.write(workflow_text([("a", None, ["      - run: echo ok"])]))
+            with open(os.path.join(temp, "ci", "broken.yml"), "w") as f:
+                f.write(workflow_text([("a", None, ["      - run: if then"])]))
+            config = os.path.join(temp, "ci", ".github", "c.json")
+            with open(config, "w") as f:
+                json.dump({"run-scripts": {"patterns": ["ci/w.yml"]}}, f)
+            out = io.StringIO()
+            self.assertEqual(runscripts.main(["--root", temp, "--config", "ci/.github/c.json"], out, io.StringIO()), 0)
+            self.assertIn("1 bash run scripts in 1 files", out.getvalue())
+            with open(config, "w") as f:
+                json.dump({"run-scripts": {"patterns": ["ci/*.yml"]}}, f)
+            err = io.StringIO()
+            self.assertEqual(runscripts.main(["--root", temp, "--config", "ci/.github/c.json"], io.StringIO(), err), 1)
+            self.assertIn("ci/broken.yml", err.getvalue().replace(os.sep, "/"))
 
 
 class RepositoryTest(unittest.TestCase):
+    """This repository's own actions, reusable workflows and workflow templates parse."""
 
     @unittest.skipUnless(BASH, "bash not installed")
     def test_every_bash_script_of_this_repository_parses(self):
         out, err = io.StringIO(), io.StringIO()
-        self.assertEqual(runscripts.main(["x"], REPO, out, err), 0, err.getvalue())
+        self.assertEqual(runscripts.main(["--root", REPO], out, err), 0, err.getvalue())
         self.assertNotIn(" 0 bash run scripts", out.getvalue())
 
 

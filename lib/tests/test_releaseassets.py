@@ -11,9 +11,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from buildcheck.releaseassets import collect, configuration, file_classifiers, projects, signature_gaps
-from buildcheck import workflow
-from buildcheck.tests.helpers import REPO
+from actionlib.java.releaseassets import collect, configuration, dry_run, file_classifiers, projects, signature_gaps
 
 
 VERSION = "2.0.0-SNAPSHOT"
@@ -183,86 +181,31 @@ class ReleaseAssetsTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "must not be negative"):
             file_classifiers(self.root, -1)
 
-    def test_current_repository_workflow_passes_collection_result_and_checks_both_uploads(self):
-        jobs = workflow.parse((Path(REPO) / ".github/workflows/publish.yml").read_text())
-        for kind in ("snapshot", "release"):
-            job = jobs[f"publish-{kind}"].text
-            self.assertIn("uses: ./.github/actions/finalize-publication", job)
-            self.assertIn(f"channel: {kind}", job)
-            self.assertIn("assets_complete: $" + "{{ steps.finalize.outputs.complete }}", job)
-            self.assertIn("        id: finalize", job)
-            attach = jobs[f"github-{kind}"].text
-            self.assertIn(f"python3 .github/publication.py verify publication-package --export-github {kind}-assets", attach)
-            self.assertNotIn("Fail if anything", attach)
-            self.assertIn("subject-path: publication-package/github/*", jobs[f"attest-{kind}"].text)
-
-    def test_current_repository_contract_collects_exact_complete_and_partial_fixture(self):
-        # Exercise this checkout's real POMs and JSON, not just a hand-written generic fixture.
-        repo = Path(REPO)
-        config = configuration(repo)
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            expected = set()
-
-            def copy(relative):
-                target = root / relative
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(repo / relative, target)
-
-            def artifact(relative, name):
-                path = root / relative
-                path.parent.mkdir(parents=True, exist_ok=True)
-                for suffix in ("", ".asc"):
-                    Path(str(path) + suffix).write_text("fixture " + str(relative) + suffix)
-                    expected.add(name + suffix)
-
-            copy(".github/release-assets.json")
-            modules = projects(repo, config.get("maven", {}).get("standalone", []))
-            version = modules[0][2]
-            for folder, name, _, packaging, reactor in modules:
-                relative = folder.relative_to(repo)
-                copy(relative / "pom.xml")
-                base = f"{name}-{version}"
-                artifact(relative / "target" / f"{base}.pom", f"{base}.pom")
-                if packaging != "pom":
-                    for classifier in ("", "-sources", "-javadoc"):
-                        artifact(relative / "target" / f"{base}{classifier}.jar", f"{base}{classifier}.jar")
-                if reactor and config.get("maven", {}).get("cyclonedx", False):
-                    artifact(relative / "target/bom.json", f"{base}-cyclonedx.json")
-            for index, rule in enumerate(config.get("files", [])):
-                if isinstance(rule.get("classifiers"), dict):
-                    copy(rule["classifiers"]["csv"])
-                for classifier in file_classifiers(repo, index):
-                    source = rule["source"].format(version=version, classifier=classifier).replace("*", "fixture")
-                    name = rule.get("name", Path(source).name).format(version=version, classifier=classifier)
-                    artifact(source, name)
-            destination = root / "collected"
-            self.assertEqual(collect(root, destination), [])
-            self.assertEqual({p.name for p in destination.iterdir()}, expected)
-            (destination / next(n for n in expected if n.endswith(".asc"))).unlink()
-            self.assertNotEqual(signature_gaps(destination)[0], 0)
-            # An incomplete reactor must still produce an upload directory with available files.
-            first = modules[0][1] + "-" + version + ".pom"
-            (root / "target" / first).unlink()
-            self.assertTrue(collect(root, root / "partial"))
-            self.assertTrue(any((root / "partial").iterdir()))
+    def test_dry_run_passes_a_complete_contract_and_names_what_would_fail(self):
+        self.assertEqual(dry_run(self.root), [])
+        # A rule naming a CSV that is not there fails before anything is published.
+        self.config["files"][0]["classifiers"]["csv"] = ".github/missing.csv"
+        self.save_config()
+        with self.assertRaises((ValueError, OSError)):
+            dry_run(self.root)
 
     def test_cli_reports_completeness_even_on_failure_and_accepts_parameters(self):
-        scripts = self.root / ".github"
-        (scripts / "buildcheck").mkdir()
-        for name in ("collect-release-assets.py", "buildcheck/releaseassets.py", "buildcheck/__init__.py"):
-            shutil.copyfile(Path(REPO) / ".github" / name, scripts / name)
-        cli = [sys.executable, str(scripts / "collect-release-assets.py")]
-        listing = subprocess.run(cli + ["--list-classifiers", "0"], capture_output=True, text=True)
+        lib = Path(__file__).resolve().parents[1]
+        environment = {**os.environ, "PYTHONPATH": str(lib)}
+        cli = [sys.executable, "-m", "actionlib.java.releaseassets", "--root", str(self.root)]
+        listing = subprocess.run(cli + ["--list-classifiers", "0"], capture_output=True, text=True, env=environment)
         self.assertEqual(listing.returncode, 0, listing.stderr)
         self.assertEqual(listing.stdout.splitlines(), ["cpu-linux", "gpu-linux"])
+        dry = subprocess.run(cli + ["--dry-run"], capture_output=True, text=True, env=environment)
+        self.assertEqual(dry.returncode, 0, dry.stdout + dry.stderr)
+        self.assertIn("dry run: 0 problems", dry.stdout)
         for complete in (True, False):
             if not complete:
                 (self.root / f"plugin/target/plugin-{VERSION}.jar").unlink()
             output = self.root / f"github-output-{complete}"
             destination = self.root / f"collected-{complete}"
-            result = subprocess.run(cli + [str(destination), "--config", str(scripts / "release-assets.json")],
-                                    env={**os.environ, "GITHUB_OUTPUT": str(output)},
+            result = subprocess.run(cli + [str(destination), "--config", ".github/release-assets.json"],
+                                    env={**environment, "GITHUB_OUTPUT": str(output)},
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 0 if complete else 1, result.stdout + result.stderr)
             self.assertEqual(output.read_text(), f"complete={str(complete).lower()}\n")

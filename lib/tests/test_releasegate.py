@@ -2,11 +2,14 @@
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
-import os
+import io
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
-from buildcheck import releasegate, workflow
-from buildcheck.tests.helpers import REPO, workflow_text
+from actionlib.common import releasegate, workflow
+from tests.helpers import workflow_text
 
 GATES = ("pub-a", "pub-b")
 
@@ -50,11 +53,38 @@ class ReleaseGateTest(unittest.TestCase):
             with self.subTest(text=text), self.assertRaises(ValueError):
                 releasegate.read_exemptions(text)
 
-    def test_the_repository_passes(self):
-        with open(os.path.join(REPO, ".github", "workflows", "publish.yml"), encoding="utf-8") as f:
-            jobs = workflow.parse(f.read())
-        with open(os.path.join(REPO, releasegate.EXEMPTIONS_FILE), encoding="utf-8") as f:
-            self.assertEqual(releasegate.check(jobs, releasegate.read_exemptions(f.read())), [])
+    def test_main_reads_the_configured_workflow_gates_and_exemptions(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "ci").mkdir()
+            (root / "ci/release.yml").write_text(workflow_text(
+                [("test", None, []), ("lint", None, []), ("pub-a", "[test]", []), ("pub-b", "[test]", [])]))
+            (root / "ci/why.txt").write_text("lint: informational only\npub-a: a gate\npub-b: a gate\n")
+            (root / ".github").mkdir()
+            (root / ".github/actions-config.json").write_text(json.dumps({"release-gate": {
+                "workflow": "ci/release.yml", "gates": ["pub-a", "pub-b"], "exemptions": "ci/why.txt"}}))
+            out, err = io.StringIO(), io.StringIO()
+            self.assertEqual(releasegate.main(["--root", temp], out, err), 0, err.getvalue())
+            self.assertIn("4 jobs, 3 exempt, 0 violations", out.getvalue())
+            (root / "ci/why.txt").write_text("pub-a: a gate\npub-b: a gate\n")
+            err = io.StringIO()
+            self.assertEqual(releasegate.main(["--root", temp], io.StringIO(), err), 1)
+            self.assertIn("release.yml: pub-a, pub-b does not wait for lint -- add it to the needs, or to why.txt",
+                          err.getvalue())
+
+    def test_main_defaults_and_unknown_keys(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / ".github/workflows").mkdir(parents=True)
+            (root / ".github/workflows/publish.yml").write_text(workflow_text(
+                [("test", None, []), ("publish-snapshot", "[test]", []), ("publish-release", "[test]", [])]))
+            (root / ".github/release-gate-exemptions.txt").write_text(
+                "publish-snapshot: a gate\npublish-release: a gate\n")
+            self.assertEqual(releasegate.main(["--root", temp], io.StringIO(), io.StringIO()), 0)
+            (root / ".github/actions-config.json").write_text(json.dumps({"release-gate": {"gate": ["x"]}}))
+            err = io.StringIO()
+            self.assertEqual(releasegate.main(["--root", temp], io.StringIO(), err), 1)
+            self.assertIn("release-gate: unknown key(s) gate", err.getvalue())
 
 
 if __name__ == "__main__":

@@ -12,10 +12,9 @@ from unittest.mock import patch
 import xml.etree.ElementTree as ET
 import zipfile
 
-from buildcheck.publication import (CENTRAL_SNAPSHOT_JOB, central_name, check_ref, prepare, snapshot_pom,
+from actionlib.java.publication import (CENTRAL_SNAPSHOT_JOB, central_name, check_ref, prepare, snapshot_pom,
                                     superseded, upload, verify)
-from buildcheck import workflow
-from buildcheck.tests.helpers import REPO
+from tests.helpers import REPO
 
 
 class PublicationFixture(unittest.TestCase):
@@ -38,7 +37,7 @@ class PublicationFixture(unittest.TestCase):
                 (self.assets / (name + extra)).write_text(data)
                 (self.stage / (name + extra)).write_text(data)
         self.package = self.root / 'package'
-        self.signatures = patch('buildcheck.publication.subprocess.run')
+        self.signatures = patch('actionlib.java.publication.subprocess.run')
         self.run = self.signatures.start()
         self.addCleanup(self.signatures.stop)
         quiet = patch('builtins.print')
@@ -132,37 +131,34 @@ class PublicationTest(PublicationFixture):
         self.assertTrue(config.findtext('{*}pomFile').endswith('.pom'))
         self.assertIsNone(config.find('{*}files'))
 
-    def test_publishers_depend_only_on_the_same_checked_handoff(self):
-        jobs = workflow.parse((Path(REPO) / '.github/workflows/publish.yml').read_text())
-        action = (Path(REPO) / '.github/actions/finalize-publication/action.yml').read_text()
-        self.assertIn('steps.ready.outputs.complete', action)
-        order = ['id: collect', 'id: preflight', 'id: handoff', 'id: ready']
+    def test_the_gate_action_secures_the_package_before_it_releases_the_consumers(self):
+        action = (Path(REPO) / "java/finalize-publication/action.yml").read_text()
+        self.assertIn("steps.ready.outputs.complete", action)
+        order = ["id: collect", "id: preflight", "id: handoff", "id: ready"]
         self.assertEqual([action.index(item) for item in order], sorted(action.index(item) for item in order))
-        self.assertIn('if-no-files-found: error', action)
-        self.assertNotIn('always()', action)
-        self.assertNotIn('continue-on-error', action)
-        for channel in ['snapshot', 'release']:
-            prep = jobs['publish-' + channel]
-            self.assertIn('steps.finalize.outputs.complete', prep.text)
-            self.assertIn('uses: ./.github/actions/finalize-publication', prep.text)
-            self.assertIn('channel: ' + channel, prep.text)
-            self.assertNotIn('publication.py prepare', prep.text)
-            self.assertNotIn('attestations: write', prep.text)
-            self.assertNotIn('id-token: write', prep.text)
-            self.assertIn('-DskipUpload=true deploy', prep.text)
-            self.assertNotIn('publishAllPublicationsToCentralSnapshotsRepository', prep.text)
-            for consumer in ['central', 'github', 'attest']:
-                job = jobs[consumer + '-' + channel]
-                self.assertEqual(job.needs, ['publish-' + channel])
-                self.assertIn("needs.publish-" + channel + ".outputs.assets_complete == 'true'", job.text)
-                self.assertIn('digest-mismatch: error', job.text)
-            self.assertIn('publication.py upload publication-package', jobs['central-' + channel].text)
-            self.assertIn('publication.py verify publication-package', jobs['github-' + channel].text)
-            attest = jobs['attest-' + channel].text
-            self.assertLess(attest.index('publication.py verify'), attest.index('uses: actions/attest-build-provenance@'))
-            self.assertIn('subject-path: publication-package/github/*', attest)
-            self.assertIn('id-token: write', attest)
-            self.assertIn('attestations: write', attest)
+        self.assertIn("python3 -m actionlib.java.releaseassets", action)
+        self.assertIn('python3 -m actionlib.java.publication prepare "signed-${CHANNEL}-assets" publication-package',
+                      action)
+        self.assertIn("if-no-files-found: error", action)
+        self.assertNotIn("always()", action)
+        self.assertNotIn("continue-on-error", action)
+
+    def test_the_consumer_actions_check_the_gate_and_the_package_first(self):
+        for name, command in (("publish-central", "args=(upload publication-package)"),
+                              ("publish-github", "publication verify publication-package"),
+                              ("attest-publication", "publication verify publication-package")):
+            with self.subTest(name):
+                action = (Path(REPO) / "java" / name / "action.yml").read_text()
+                self.assertIn('if [ "$COMPLETE" != "true" ]', action)
+                self.assertIn("digest-mismatch: error", action)
+                self.assertIn(command, action)
+                self.assertLess(action.index("COMPLETE"), action.index("actions/download-artifact@"))
+        attest = (Path(REPO) / "java/attest-publication/action.yml").read_text()
+        self.assertLess(attest.index("publication verify"), attest.index("uses: actions/attest-build-provenance@"))
+        self.assertIn("subject-path: publication-package/github/*", attest)
+        central = (Path(REPO) / "java/publish-central/action.yml").read_text()
+        self.assertIn("default: " + CENTRAL_SNAPSHOT_JOB, central)
+        self.assertIn("--skip-superseded --job-name", central)
 
     def test_snapshot_channel_and_ref_must_match_the_version(self):
         with self.assertRaisesRegex(ValueError, "release publication of snapshot version"):
@@ -302,7 +298,7 @@ class UploadTest(PublicationFixture):
         self.addCleanup(env.stop)
 
     def frozen(self, release=False):
-        with patch("buildcheck.publication.subprocess.run"):
+        with patch("actionlib.java.publication.subprocess.run"):
             if release:
                 self.release()
                 self.freeze(ref="refs/tags/v1.2.3")
@@ -323,7 +319,7 @@ class UploadTest(PublicationFixture):
             seen["args"] = args
             return subprocess.CompletedProcess(args, 0, '"deployment-id_1"', "")
 
-        with patch("buildcheck.publication.subprocess.run", side_effect=curl):
+        with patch("actionlib.java.publication.subprocess.run", side_effect=curl):
             upload(package)
         self.assertIn("local/test/demo/1.2.3/demo-1.2.3.jar.asc", seen["names"])
         self.assertIn("local/test/demo/1.2.3/demo-1.2.3.jar.sha512", seen["names"])
@@ -340,13 +336,13 @@ class UploadTest(PublicationFixture):
         for code, out in ((22, "rejected"), (0, "not a receipt!")):
             with self.subTest(code=code):
                 result = subprocess.CompletedProcess([], code, out, "")
-                with patch("buildcheck.publication.subprocess.run", return_value=result):
+                with patch("actionlib.java.publication.subprocess.run", return_value=result):
                     with self.assertRaises(RuntimeError):
                         upload(package)
 
     def test_snapshot_transfer_runs_maven_on_the_generated_pom(self):
         package = self.frozen()
-        with patch("buildcheck.publication.subprocess.run") as run:
+        with patch("actionlib.java.publication.subprocess.run") as run:
             upload(package)
         args = run.call_args.args[0]
         self.assertEqual((args[0], args[-1]), ("mvn", "validate"))
@@ -356,7 +352,7 @@ class UploadTest(PublicationFixture):
         os.environ["GITHUB_SHA"] = "a" * 40
         package = self.frozen()
         gh = FakeRuns(newer_published=True)
-        with patch("buildcheck.publication.subprocess.run") as run:
+        with patch("actionlib.java.publication.subprocess.run") as run:
             upload(package, skip_superseded=True, github=gh)
             self.assertFalse(run.called)
             upload(package, github=gh)
@@ -406,27 +402,3 @@ class SupersededTest(unittest.TestCase):
                        {"newer_published": True, "job": "Some other job"}):
             with self.subTest(**kwargs):
                 self.assertFalse(superseded("owner/repo", "a" * 40, "10", FakeRuns(**kwargs)))
-
-
-class WorkflowContractTest(unittest.TestCase):
-    """The shared jobs call the gate the way the code above expects."""
-
-    def setUp(self):
-        self.jobs = workflow.parse((Path(REPO) / ".github/workflows/publish.yml").read_text())
-
-    def test_ref_checks_run_before_anything_is_prepared(self):
-        for job, channel in (("check-snapshot", "snapshot"), ("check-tag", "release")):
-            self.assertIn("python3 .github/publication.py check-ref --channel " + channel, self.jobs[job].text)
-            self.assertIn("persist-credentials: false", self.jobs[job].text)
-        action = (Path(REPO) / ".github/actions/finalize-publication/action.yml").read_text()
-        self.assertIn('publication.py prepare "signed-${CHANNEL}-assets" publication-package --channel "$CHANNEL"',
-                      action)
-
-    def test_snapshot_transfers_are_serialized_and_skip_superseded_commits(self):
-        job = self.jobs["central-snapshot"].text
-        self.assertIn("name: " + CENTRAL_SNAPSHOT_JOB, job)
-        self.assertIn("group: central-snapshot-${{ github.repository }}", job)
-        self.assertIn("cancel-in-progress: false", job)
-        self.assertIn("actions: read", job)
-        self.assertIn("python3 .github/publication.py upload publication-package --skip-superseded", job)
-        self.assertNotIn("--skip-superseded", self.jobs["central-release"].text)

@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 """Every `run:` script of the workflows and composite actions that runs in bash, parsed with
-`bash -n` -- so a broken script fails the `shared-files` job in the first minutes of a run instead
+`bash -n` -- so a broken script fails the repository checks in the first minutes of a run instead
 of the job that executes it, possibly hours later or only on a release path.
 
 The case this exists for: a cleanup lost the trailing backslash of six continued lines, leaving a
@@ -22,14 +22,21 @@ The run value is taken as YAML defines it: a literal block (`|`) line for line, 
 (`>`) and a plain scalar folded into one line, a single-quoted scalar unquoted. A double-quoted
 scalar is skipped (its escapes are not worth a YAML parser). Every `${{ ... }}` expression becomes
 a word, which is what the runner substitutes before bash sees the script.
+
+The files are the ``patterns`` of the ``run-scripts`` section of ``.github/actions-config.json``
+(globs relative to the repository; default: the workflows and the composite actions under
+``.github/actions/``). This repository checks its own actions the same way.
 """
 
+import argparse
 import glob
 import os
 import re
 import shutil
 import subprocess
 import sys
+
+from . import config as configuration
 
 RUN = re.compile(r"^(?P<lead>\s*(?:- )?)run:(?:\s+(?P<value>.*?))?\s*$")
 BLOCK_HEADER = re.compile(r"^(?P<style>[|>])[-+]?[1-9]?\s*(#.*)?$")
@@ -246,14 +253,23 @@ def check(path, text, parser=bash_n):
     return errors, checked
 
 
-def files(root):
-    return sorted({path for pattern in PATTERNS for path in glob.glob(os.path.join(root, pattern))})
+def files(root, patterns=PATTERNS):
+    return sorted({path for pattern in patterns for path in glob.glob(os.path.join(root, pattern), recursive=True)})
 
 
-def main(argv, root, out=sys.stdout, err=sys.stderr):
-    """check-run-scripts.py -- bash -n over every bash run script of the workflows and actions"""
-    if argv[1:]:
-        print(main.__doc__, file=err)
+def main(argv=None, out=sys.stdout, err=sys.stderr):
+    parser = argparse.ArgumentParser(prog="python3 -m actionlib.common.runscripts",
+                                     description="bash -n over every bash run script of the workflows and actions")
+    parser.add_argument("--root", default=".", help="the repository (default: the current directory)")
+    parser.add_argument("--config", help=f"configuration file (default: {configuration.DEFAULT_PATH})")
+    args = parser.parse_args(argv)
+    root = args.root
+    try:
+        settings = configuration.section(configuration.load(root, args.config), "run-scripts",
+                                         {"patterns": list(PATTERNS)})
+        patterns = configuration.strings(settings["patterns"], "run-scripts.patterns")
+    except (ValueError, OSError) as error:
+        print(f"::error::{error}", file=err)
         return 2
     bash = shutil.which("bash")
     if not bash:
@@ -261,7 +277,7 @@ def main(argv, root, out=sys.stdout, err=sys.stderr):
         return 2
     errors = []
     checked = 0
-    paths = files(root)
+    paths = files(root, patterns)
     for path in paths:
         with open(path, encoding="utf-8") as f:
             found, count = check(os.path.relpath(path, root), f.read(), lambda s: bash_n(s, bash))
@@ -271,3 +287,7 @@ def main(argv, root, out=sys.stdout, err=sys.stderr):
         print(f"::error::{error}", file=err)
     print(f"{checked} bash run scripts in {len(paths)} files, {len(errors)} that do not parse", file=out)
     return 1 if errors or not paths else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

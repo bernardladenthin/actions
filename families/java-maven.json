@@ -1,0 +1,9 @@
+{
+  "$comment": "The Maven repositories that pin the same build tooling; maven-versions compares each with the others. Each repository names its own POMs in the maven-versions.poms of its .github/actions-config.json.",
+  "repositories": [
+    "bernardladenthin/java-llama.cpp",
+    "bernardladenthin/BitcoinAddressFinder",
+    "bernardladenthin/srcmorph",
+    "bernardladenthin/streambuffer"
+  ]
+}

@@ -3,10 +3,11 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
 import os
+from pathlib import Path
 import unittest
 
-from buildcheck import workflow
-from buildcheck.tests.helpers import REPO, upload, workflow_text
+from actionlib.common import workflow
+from tests.helpers import REPO, upload, workflow_text
 
 
 class ParseTest(unittest.TestCase):
@@ -51,19 +52,15 @@ class ParseTest(unittest.TestCase):
 
 
 class RepositoryWorkflowsTest(unittest.TestCase):
+    """The reusable workflows of this repository and the workflow templates parse."""
 
-    def test_every_workflow_of_the_repository_parses(self):
-        folder = os.path.join(REPO, ".github", "workflows")
-        for name in sorted(os.listdir(folder)):
-            with self.subTest(name):
-                with open(os.path.join(folder, name), encoding="utf-8") as f:
-                    self.assertTrue(workflow.parse(f.read()))
-
-    def test_publish_has_both_publish_jobs_and_they_wait_for_something(self):
-        with open(os.path.join(REPO, ".github", "workflows", "publish.yml"), encoding="utf-8") as f:
-            jobs = workflow.parse(f.read())
-        for gate in ("publish-snapshot", "publish-release"):
-            self.assertGreater(len(workflow.closure(jobs, gate)), 3, gate)
+    def test_every_workflow_and_workflow_template_parses(self):
+        root = Path(REPO)
+        paths = sorted(root.glob(".github/workflows/*.yml")) + sorted(root.glob("templates/*/.github/workflows/*.yml"))
+        self.assertTrue(paths)
+        for path in paths:
+            with self.subTest(path.relative_to(root).as_posix()):
+                self.assertTrue(workflow.parse(path.read_text(encoding="utf-8")))
 
 
 if __name__ == "__main__":

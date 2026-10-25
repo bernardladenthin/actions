@@ -8,9 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from buildcheck.snapshot import GitHub, publish
-from buildcheck import workflow
-from buildcheck.tests.helpers import REPO
+from actionlib.common.snapshot import GitHub, publish
 
 
 OLD, NEW = "a" * 40, "b" * 40
@@ -231,33 +229,16 @@ class SnapshotTest(unittest.TestCase):
             self.publish()
         self.assertEqual(self.gh.calls, [])
 
-    def test_workflow_serializes_entire_update_and_passes_collection_result(self):
-        jobs = workflow.parse((Path(REPO) / ".github/workflows/publish.yml").read_text())
-        job = jobs["github-snapshot"].text
-        self.assertIn("    concurrency:\n      group: snapshot-release-${{ github.repository }}", job)
-        self.assertIn("      cancel-in-progress: false", job)
-        self.assertIn("ASSETS_COMPLETE: ${{ needs.publish-snapshot.outputs.assets_complete }}", job)
-        self.assertIn("python3 .github/update-snapshot.py snapshot-assets", job)
-
     def test_optional_api_failure_accepts_only_404_not_authentication_failure(self):
         gh = GitHub()
         for status in (403, 404):
             response = subprocess.CompletedProcess([], 1, "", f"gh: failure (HTTP {status})")
-            with patch("buildcheck.snapshot.subprocess.run", return_value=response):
+            with patch("actionlib.common.snapshot.subprocess.run", return_value=response):
                 if status == 404:
                     self.assertIsNone(gh.api("GET", "repos/owner/repo/releases/tags/snapshot", optional=True))
                 else:
                     with self.assertRaisesRegex(RuntimeError, "403"):
                         gh.api("GET", "repos/owner/repo/releases/tags/snapshot", optional=True)
-
-    def test_release_upload_jobs_do_not_persist_checkout_credentials(self):
-        jobs = workflow.parse((Path(REPO) / ".github/workflows/publish.yml").read_text())
-        for name in ("github-snapshot", "github-release"):
-            checkouts = [step for step in jobs[name].steps()
-                         if any("uses: actions/checkout@" in line for line in step)]
-            self.assertTrue(checkouts, name)
-            for step in checkouts:
-                self.assertIn("          persist-credentials: false", step, name)
 
 
 if __name__ == "__main__":

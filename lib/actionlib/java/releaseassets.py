@@ -3,16 +3,21 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 """Collect signed Maven release assets and explicitly configured extra files.
 
-No repository names or native/Android layouts live here. See the workspace policy
-policies/release-asset-scripts.md for the JSON contract and staging options.
+No repository names or native/Android layouts live here: the contract is the repository's
+.github/release-assets.json, documented in docs/publication.md of bernardladenthin/actions.
 """
 
+import argparse
 import csv
 import json
+import os
 import re
 import shutil
+import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+from ..common.signatures import signature_gaps  # noqa: F401 -- re-exported for the callers
 
 
 def _keys(value, allowed, context):
@@ -189,21 +194,108 @@ def collect(root, destination, config_path=None, *, maven_only=False, maven_asse
     return errors
 
 
-def signature_gaps(directory):
-    """Presence/size check for every file type; signing itself verifies cryptographic validity."""
-    directory = Path(directory)
-    files = sorted(directory.iterdir()) if directory.is_dir() else []
-    artifacts = [path for path in files if not path.name.endswith(".asc")]
-    if not artifacts:
-        return -1, [f"no artifacts in {directory} -- the collection step produced nothing"]
+def dry_run(root, config_path=None):
+    """Problems with the repository's contract, found without a build: every expected output is
+    faked in a scratch copy (the POMs, the CSVs the rules name and the JSON itself), collected,
+    and the result compared with what the contract promises. Runs in every pull request, so a
+    contract that would fail a publication fails long before one."""
+    import tempfile
+
+    repo = Path(root).resolve()
+    config = configuration(repo, config_path)
+    problems = []
+    with tempfile.TemporaryDirectory(prefix="release-assets-dry-run-") as temp:
+        scratch = Path(temp)
+        expected = set()
+
+        def copy(relative):
+            target = scratch / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(repo / relative, target)
+
+        def artifact(relative, name):
+            path = scratch / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            for suffix in ("", ".asc"):
+                Path(str(path) + suffix).write_text("fixture " + str(relative) + suffix)
+                expected.add(name + suffix)
+
+        contract = Path(config_path) if config_path else Path(".github/release-assets.json")
+        copy(contract)
+        modules = projects(repo, config.get("maven", {}).get("standalone", []))
+        version = modules[0][2]
+        for folder, name, _, packaging, reactor in modules:
+            relative = folder.relative_to(repo)
+            copy(relative / "pom.xml")
+            base = f"{name}-{version}"
+            artifact(relative / "target" / f"{base}.pom", f"{base}.pom")
+            if packaging != "pom":
+                for classifier in ("", "-sources", "-javadoc"):
+                    artifact(relative / "target" / f"{base}{classifier}.jar", f"{base}{classifier}.jar")
+            if reactor and config.get("maven", {}).get("cyclonedx", False):
+                artifact(relative / "target/bom.json", f"{base}-cyclonedx.json")
+        for index, rule in enumerate(config.get("files", [])):
+            if isinstance(rule.get("classifiers"), dict):
+                copy(rule["classifiers"]["csv"])
+            for classifier in file_classifiers(repo, index, config_path):
+                source = rule["source"].format(version=version, classifier=classifier).replace("*", "fixture")
+                name = rule.get("name", Path(source).name).format(version=version, classifier=classifier)
+                artifact(source, name)
+        destination = scratch / "collected"
+        problems += collect(scratch, destination, config_path)
+        if not problems:
+            collected = {path.name for path in destination.iterdir()}
+            problems += [f"expected but not collected: {name}" for name in sorted(expected - collected)]
+            problems += [f"collected but not expected: {name}" for name in sorted(collected - expected)]
+            if signature_gaps(destination)[0] != 0:
+                problems.append("the collected files are not all signed")
+    return problems
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog="python3 -m actionlib.java.releaseassets",
+                                     description="Collect assets using the repository's explicit release-assets.json contract.")
+    parser.add_argument("destination", nargs="?")
+    parser.add_argument("--root", default=".", help="the repository (default: the current directory)")
+    parser.add_argument("--config", help="JSON contract (default: .github/release-assets.json)")
+    parser.add_argument("--maven-only", action="store_true", help="stage signed Maven files before a rebuild")
+    parser.add_argument("--maven-assets", help="read Maven files from a previous staging directory")
+    parser.add_argument("--list-classifiers", type=int, metavar="RULE", help="print classifiers of a file rule (zero based)")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="check the contract against faked outputs in a scratch copy, collect nothing")
+    args = parser.parse_args(argv)
+    if args.dry_run:
+        try:
+            problems = dry_run(args.root, args.config)
+        except (ValueError, OSError, KeyError, ET.ParseError) as error:
+            problems = [str(error)]
+        for problem in problems:
+            print(f"::error::{problem}")
+        print(f"release asset contract dry run: {len(problems)} problems")
+        return 1 if problems else 0
+    if args.list_classifiers is None and args.destination is None:
+        parser.error("destination is required unless --list-classifiers or --dry-run is used")
     errors = []
-    for path in artifacts:
-        signature = Path(str(path) + ".asc")
-        if not path.is_file() or path.stat().st_size == 0:
-            errors.append(f"missing or empty artifact: {path.name}")
-        elif not signature.is_file() or signature.stat().st_size == 0:
-            errors.append(f"unsigned: {path.name} has no nonempty detached .asc")
-    for path in files:
-        if path.name.endswith(".asc") and not path.with_suffix("").is_file():
-            errors.append(f"orphan signature: {path.name}")
-    return len(errors), errors
+    try:
+        root = Path(args.root).resolve()
+        if args.list_classifiers is not None:
+            if args.list_classifiers < 0:
+                raise ValueError("file rule index must not be negative")
+            print("\n".join(file_classifiers(root, args.list_classifiers, args.config)))
+            return 0
+        errors = collect(root, args.destination, args.config,
+                         maven_only=args.maven_only, maven_assets=args.maven_assets)
+    except (ValueError, OSError, ET.ParseError) as error:
+        errors.append(str(error))
+    for error in errors:
+        print(f"::error::{error}")
+    if not errors:
+        print(f"Collected {len(list(Path(args.destination).iterdir()))} release files including signatures.")
+    if os.environ.get("GITHUB_OUTPUT"):
+        with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+            output.write(f"complete={'false' if errors else 'true'}\n")
+    return 1 if errors else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

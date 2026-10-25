@@ -9,12 +9,15 @@ An incomplete collection changes nothing: no upload, no tag or notes update, no 
 snapshot starts as a draft, so a failed first upload leaves neither a public release nor a tag.
 """
 
+import argparse
 import json
+import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
-from .releaseassets import signature_gaps
+from .signatures import signature_gaps
 
 # GitHub renames release assets with other characters; a renamed asset would be pruned as obsolete.
 ASSET_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -134,3 +137,25 @@ def publish(repository, sha, run_id, attempt, assets_dir, complete, github=None,
     if failures:
         raise RuntimeError("; ".join(failures))
     return True
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog="python3 -m actionlib.common.snapshot",
+                                     description="Upload a directory of signed files as the rolling snapshot release "
+                                                 "(requires the serialized snapshot job and ASSETS_COMPLETE=true).")
+    parser.add_argument("directory")
+    parser.add_argument("--tag", default="snapshot")
+    parser.add_argument("--title", default="Snapshot (latest)")
+    args = parser.parse_args(argv)
+    try:
+        publish(os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_SHA"],
+                os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"], args.directory,
+                os.environ.get("ASSETS_COMPLETE") == "true", tag=args.tag, title=args.title)
+        return 0
+    except (ValueError, OSError, RuntimeError, KeyError, subprocess.CalledProcessError) as error:
+        print(f"::error::{error}")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
