@@ -25,9 +25,14 @@ class FakeGitHub:
         self.fail_deletes = set()
         self.tag = "snapshot"
         self.drafts = []
+        self.refuse_ref_patch = None
 
     def api(self, method, endpoint, payload=None, optional=False):
         self.calls.append((method, endpoint, payload))
+        if method == "PATCH" and "/git/refs/tags/" in endpoint and self.refuse_ref_patch:
+            raise RuntimeError(f"GitHub PATCH {endpoint}: {self.refuse_ref_patch}")
+        if method == "DELETE" and "/git/refs/" in endpoint:
+            return None
         if method == "DELETE" and int(endpoint.rsplit("/", 1)[1]) in self.fail_deletes:
             raise RuntimeError("delete failed")
         if method == "GET":
@@ -228,6 +233,53 @@ class SnapshotTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no artifacts"):
             self.publish()
         self.assertEqual(self.gh.calls, [])
+
+    def test_a_refused_tag_move_deletes_and_recreates_the_tag(self):
+        self.gh.refuse_ref_patch = "gh: Resource not accessible by integration (HTTP 403)"
+        with patch("builtins.print"):
+            self.assertTrue(self.publish())
+        calls = [(c[0], c[1]) for c in self.gh.calls]
+        refused = calls.index(("PATCH", "repos/owner/repo/git/refs/tags/snapshot"))
+        self.assertEqual(calls[refused + 1:refused + 3],
+                         [("DELETE", "repos/owner/repo/git/refs/tags/snapshot"),
+                          ("POST", "repos/owner/repo/git/refs")])
+        self.assertEqual(self.gh.calls[refused + 2][2], {"ref": "refs/tags/snapshot", "sha": NEW})
+        notes = next(c for c in self.gh.calls if c[0] == "PATCH" and c[1].endswith("/releases/7"))
+        self.assertGreater(self.gh.calls.index(notes), refused + 2)
+        self.assertEqual(notes[2]["tag_name"], "snapshot")
+        self.assertFalse(notes[2]["draft"])
+
+    def test_another_tag_move_failure_is_not_turned_into_a_delete(self):
+        self.gh.refuse_ref_patch = "gh: Validation Failed (HTTP 422)"
+        with self.assertRaisesRegex(RuntimeError, "422"):
+            self.publish()
+        self.assertFalse(any(c[0] == "DELETE" for c in self.gh.calls))
+        self.assertFalse(any(c[0] == "PATCH" and c[1].endswith("/releases/7") for c in self.gh.calls))
+
+    def test_a_read_is_retried_on_a_server_error_and_nothing_else_is(self):
+        gh = GitHub()
+        fail = subprocess.CompletedProcess([], 1, "", "gh: Server Error (HTTP 502)")
+        ok = subprocess.CompletedProcess([], 0, '{"jobs": []}', "")
+        with patch("actionlib.common.snapshot.time.sleep") as sleep, patch("builtins.print"):
+            with patch("actionlib.common.snapshot.subprocess.run", side_effect=[fail, fail, ok]) as run:
+                self.assertEqual(gh.api("GET", "repos/owner/repo/actions/runs/1/jobs"), {"jobs": []})
+            self.assertEqual(run.call_count, 3)
+            self.assertEqual([c.args[0] for c in sleep.call_args_list], [5, 15])
+            with patch("actionlib.common.snapshot.subprocess.run", return_value=fail) as run:
+                with self.assertRaisesRegex(RuntimeError, "502"):
+                    gh.api("GET", "repos/owner/repo/actions/runs/1/jobs")
+            self.assertEqual(run.call_count, 4)
+            stream = subprocess.CompletedProcess([], 1, "", "stream error: stream ID 1; CANCEL; received from peer")
+            with patch("actionlib.common.snapshot.subprocess.run", side_effect=[stream, ok]) as run:
+                gh.api("GET", "repos/owner/repo/actions/runs/1/jobs")
+            self.assertEqual(run.call_count, 2)
+            for method, stderr in (("PATCH", "gh: Server Error (HTTP 502)"),
+                                   ("GET", "gh: Resource not accessible by integration (HTTP 403)")):
+                response = subprocess.CompletedProcess([], 1, "", stderr)
+                with patch("actionlib.common.snapshot.subprocess.run", return_value=response) as run:
+                    with self.assertRaises(RuntimeError):
+                        gh.api(method, "repos/owner/repo/git/refs/tags/snapshot", {"sha": NEW})
+                self.assertEqual(run.call_count, 1, method)
 
     def test_optional_api_failure_accepts_only_404_not_authentication_failure(self):
         gh = GitHub()

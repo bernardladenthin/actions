@@ -15,12 +15,20 @@ import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from .signatures import signature_gaps
 
 # GitHub renames release assets with other characters; a renamed asset would be pruned as obsolete.
 ASSET_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+# A GET that GitHub answers with a server error or a dropped HTTP/2 stream is asked again after
+# these pauses (seconds). Listing the jobs of a large run (java-llama.cpp: ~80 jobs, several
+# attempts) failed that way in two consecutive central-snapshot jobs, and a run that dies on a
+# read wastes a whole publication. Only reads are repeated: a write may have taken effect.
+RETRY_DELAYS = (5, 15, 45)
+TRANSIENT = re.compile(r"HTTP 5\d\d|stream error|CANCEL|connection reset|timed out|EOF", re.IGNORECASE)
 
 
 class GitHub:
@@ -31,8 +39,15 @@ class GitHub:
         args = ["gh", "api", "--method", method, endpoint]
         if payload is not None:
             args += ["--input", "-"]
-        result = subprocess.run(args, input=json.dumps(payload) if payload is not None else None,
-                                text=True, capture_output=True)
+        delays = RETRY_DELAYS if method == "GET" else ()
+        for attempt in range(len(delays) + 1):
+            result = subprocess.run(args, input=json.dumps(payload) if payload is not None else None,
+                                    text=True, capture_output=True)
+            if not result.returncode or attempt == len(delays) or not TRANSIENT.search(result.stderr):
+                break
+            print(f"GitHub {method} {endpoint}: {result.stderr.strip()}; retrying in {delays[attempt]} s",
+                  file=sys.stderr)
+            time.sleep(delays[attempt])
         if result.returncode:
             if optional and "HTTP 404" in result.stderr:
                 return None
@@ -110,11 +125,24 @@ def publish(repository, sha, run_id, attempt, assets_dir, complete, github=None,
     gh.command("release", "upload", tag, *files, "--repo", repository, "--clobber")
 
     if ref:
-        gh.api("PATCH", f"{repo}/git/refs/tags/{tag}", {"sha": sha, "force": True})
+        try:
+            gh.api("PATCH", f"{repo}/git/refs/tags/{tag}", {"sha": sha, "force": True})
+        except RuntimeError as error:
+            if "HTTP 403" not in str(error):
+                raise
+            # GitHub refused this move with 403 "Resource not accessible by integration" in
+            # java-llama.cpp run 40227501358 (12 changed workflow files between the two commits;
+            # presumably the `workflows` permission, which the workflow token cannot hold). Delete
+            # the tag and create it again at a commit the repository already has; the release
+            # PATCH below points the release at it again.
+            print(f"Moving tag {tag} was refused; deleting and re-creating it at {sha}.")
+            gh.api("DELETE", f"{repo}/git/refs/tags/{tag}")
+            gh.api("POST", f"{repo}/git/refs", {"ref": f"refs/tags/{tag}", "sha": sha})
     else:
         gh.api("POST", f"{repo}/git/refs", {"ref": f"refs/tags/{tag}", "sha": sha})
     gh.api("PATCH", f"{repo}/releases/{release['id']}", {
-        "target_commitish": sha, "name": title, "prerelease": True, "draft": False, "body": body
+        "tag_name": tag, "target_commitish": sha, "name": title, "prerelease": True, "draft": False,
+        "body": body
     })
 
     # Read every page before deleting: deleting while paginating could skip shifted entries.
