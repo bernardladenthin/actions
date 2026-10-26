@@ -1,0 +1,70 @@
+# SPDX-FileCopyrightText: 2026 Bernard Ladenthin <bernard.ladenthin@gmail.com>
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+name: Audit a published release
+description: >-
+  Re-checks a release once it exists, from what a consumer sees: downloads the GitHub release of
+  the tag and checks the run, its jobs, the files against release-assets.json, Maven Central
+  (polled while it still publishes), the signatures with the release key from a public keyserver,
+  the build provenance of every file, the bytecode floors and the next development version.
+  Runs on a checkout of the tag; the job needs contents, actions and attestations read
+  permissions. The downloaded files stay in `assets` for the repository's own checks.
+  See lib/actionlib/java/audit.py.
+inputs:
+  tag:
+    description: The release tag, v<version>; the checkout must be at it.
+    required: true
+  assets:
+    description: Directory to download the release files into (must not exist or be empty).
+    required: false
+    default: release-assets
+  checks:
+    description: Comma-separated subset of run,jobs,assets,central,signatures,provenance,bytecode,next (default all).
+    required: false
+    default: ''
+  wait-minutes:
+    description: How long to poll Maven Central for files it does not serve yet.
+    required: false
+    default: '60'
+  config:
+    description: Configuration file, relative to the repository (default .github/actions-config.json).
+    required: false
+    default: ''
+  assets-config:
+    description: The release asset contract, relative to the repository (default .github/release-assets.json).
+    required: false
+    default: ''
+  github-token:
+    description: Token for the GitHub API and gh attestation verify.
+    required: false
+    default: ${{ github.token }}
+runs:
+  using: composite
+  steps:
+    - name: Download the GitHub release
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        TAG: ${{ inputs.tag }}
+        ASSETS: ${{ inputs.assets }}
+      run: |
+        set -euo pipefail
+        if [ -d "$ASSETS" ] && [ -n "$(ls -A "$ASSETS")" ]; then
+          echo "::error::$ASSETS is not empty"; exit 1
+        fi
+        gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir "$ASSETS"
+        echo "downloaded $(ls "$ASSETS" | wc -l) files ($(du -sh "$ASSETS" | cut -f1)) of $TAG"
+    - name: Audit the release
+      shell: bash
+      env:
+        PYTHONPATH: ${{ github.action_path }}/../../lib
+        GH_TOKEN: ${{ inputs.github-token }}
+        TAG: ${{ inputs.tag }}
+        ASSETS: ${{ inputs.assets }}
+        CHECKS: ${{ inputs.checks }}
+        WAIT: ${{ inputs.wait-minutes }}
+        CONFIG: ${{ inputs.config }}
+        ASSETS_CONFIG: ${{ inputs.assets-config }}
+      run: >-
+        python3 -m actionlib.java.audit --tag "$TAG" --assets "$ASSETS" --wait-minutes "$WAIT"
+        ${CHECKS:+--checks "$CHECKS"} ${CONFIG:+--config "$CONFIG"} ${ASSETS_CONFIG:+--assets-config "$ASSETS_CONFIG"}

@@ -7,9 +7,10 @@ SPDX-License-Identifier: MIT OR Apache-2.0
 
 The Maven publication of every repository that uses these actions: `java/finalize-publication`
 (the gate), `java/publish-central`, `java/publish-github` and `java/attest-publication` (the
-consumers), `java/check-release-ref` (the ref check) and `java/check-publication` (the wiring and
-the contract, checked in every pull request). The code is `lib/actionlib/java/publication.py` and
-`releaseassets.py`, the rolling snapshot `lib/actionlib/common/snapshot.py`.
+consumers), `java/check-release-ref` (the ref check), `java/check-publication` (the wiring and
+the contract, checked in every pull request) and `java/audit-publication` (the published release,
+checked from the outside afterwards). The code is `lib/actionlib/java/publication.py`,
+`releaseassets.py` and `audit.py`, the rolling snapshot `lib/actionlib/common/snapshot.py`.
 
 ## Invariants
 
@@ -167,3 +168,44 @@ visible in the affected upload job, but never gate the other publisher. Slow Por
 does not fail the build. Upload acceptance is not a claim of successful Central validation;
 inspect the recorded deployment in Portal if later processing fails. Re-running a transfer
 uses the same frozen package. A network-interrupted GitHub release update is not atomic.
+
+## After the release: the audit
+
+The gate proves the package was complete when it was frozen; nothing above proves that Central
+published it, that the release still holds it, or that the run that made it was the one the tag
+names. `java/audit-publication` checks the published release the way a consumer meets it, without
+trusting the run, on a checkout of the tag (`lib/actionlib/java/audit.py`):
+
+| Check | Passes when |
+|---|---|
+| `run` | exactly one successful run of the publish workflow on the tag, at the tag's commit, and that commit is on the default branch (cancelled runs of a re-pointed tag are listed, not failed) |
+| `jobs` | no job of that run failed or was cancelled, and the skipped jobs are exactly the other channel's (`check-snapshot`, `publish-snapshot` and its three consumers, by their display names): a skip propagates down `needs:` past any `if:` and can turn a run green while it published nothing |
+| `assets` | the release files are exactly what the contract and the POMs at the tag promise, each with its `.asc`; a wildcard rule without `name` matches exactly one file |
+| `central` | every Central file and signature is served by `repo1.maven.org` with the GitHub file's bytes: the published `.sha256` (else `.sha1`) against the local digest, a signature byte for byte. Absent files are polled for `wait-minutes` (Central publishes a validated bundle asynchronously) |
+| `signatures` | the release key (`post-release.signing-key`, the primary fingerprint) comes from a public keyserver over HTTPS into a throwaway keyring, every signature verifies, and one signing subkey signed them all |
+| `provenance` | `gh attestation verify` of one file, pinned to `refs/tags/<tag>` and the publish workflow, and every release file (signatures included) is a subject of a verified statement of that run, with its digest |
+| `bytecode` | no class above the major of the first matching `post-release.bytecode` rule (`module-info` and `META-INF/versions/` skipped, an AAR's `classes.jar` scanned); a rule that scanned nothing fails |
+| `next` | the default branch is at the next minor `-SNAPSHOT` -- a warning, never a failure: right after a release the bump is normally still on a branch |
+
+Trigger it after the publish workflow, not on `release: published`: a release created with the
+workflow token starts no workflow. A `workflow_run` on the publish workflow's completion, filtered
+to a successful run on a `v*` tag, plus `workflow_dispatch` with the tag for a re-audit:
+
+```yaml
+on:
+  workflow_run: { workflows: [Publish], types: [completed] }
+  workflow_dispatch: { inputs: { tag: { required: true } } }
+permissions: { contents: read, actions: read, attestations: read }
+jobs:
+  audit:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.head_branch, 'v')) }}
+    runs-on: ubuntu-latest
+    env: { TAG: "${{ inputs.tag || github.event.workflow_run.head_branch }}" }
+    steps:
+      - uses: actions/checkout@<commit> # with ref: ${{ env.TAG }}, persist-credentials: false
+      - uses: bernardladenthin/actions/java/audit-publication@<commit> # v1.x.y
+        with: { tag: "${{ env.TAG }}" }
+```
+
+The downloaded files stay in the `assets` directory, so the repository's own checks of its
+artifacts (native libraries, archives, a real consumer) run in the same job after it.

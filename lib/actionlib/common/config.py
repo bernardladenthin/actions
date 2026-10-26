@@ -10,7 +10,8 @@ One JSON object, one key per check, each optional where the check has defaults::
       "release-gate": {"workflow": ".github/workflows/publish.yml", "gates": [...], "exemptions": "..."},
       "run-scripts": {"patterns": [".github/workflows/*.yml", ...]},
       "maven-versions": {"poms": ["pom.xml"], "family": "java-maven", "ignore-groups": ["net.ladenthin"]},
-      "publication-wiring": {"workflow": ".github/workflows/publish.yml"}
+      "publication-wiring": {"workflow": ".github/workflows/publish.yml"},
+      "post-release": {"signing-key": "<fingerprint>", "bytecode": [{"files": "*", "major": 52}]}
     }
 
 Unknown keys fail, at every level: a misspelt key would otherwise switch a check back to its
@@ -24,7 +25,8 @@ import subprocess
 from pathlib import Path
 
 DEFAULT_PATH = ".github/actions-config.json"
-SECTIONS = ("templates", "release-gate", "run-scripts", "maven-versions", "publication-wiring")
+SECTIONS = ("templates", "release-gate", "run-scripts", "maven-versions", "publication-wiring",
+            "post-release")
 REMOTE = re.compile(r"[:/]([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?$")
 
 
