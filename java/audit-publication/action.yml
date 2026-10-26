@@ -7,13 +7,18 @@ description: >-
   the tag and checks the run, its jobs, the files against release-assets.json, Maven Central
   (polled while it still publishes), the signatures with the release key from a public keyserver,
   the build provenance of every file, the bytecode floors and the next development version.
-  Runs on a checkout of the tag; the job needs contents, actions and attestations read
+  Reads the contract, the POMs and the publish workflow from `root` (a checkout of the tag) and
+  the configuration from the workspace; the job needs contents, actions and attestations read
   permissions. The downloaded files stay in `assets` for the repository's own checks.
   See lib/actionlib/java/audit.py.
 inputs:
   tag:
-    description: The release tag, v<version>; the checkout must be at it.
+    description: The release tag, v<version>; `root` must be a checkout of it.
     required: true
+  root:
+    description: A checkout of the tag (default the workspace, when that is the tag's checkout).
+    required: false
+    default: '.'
   assets:
     description: Directory to download the release files into (must not exist or be empty).
     required: false
@@ -61,10 +66,11 @@ runs:
         GH_TOKEN: ${{ inputs.github-token }}
         TAG: ${{ inputs.tag }}
         ASSETS: ${{ inputs.assets }}
+        ROOT: ${{ inputs.root }}
         CHECKS: ${{ inputs.checks }}
         WAIT: ${{ inputs.wait-minutes }}
         CONFIG: ${{ inputs.config }}
         ASSETS_CONFIG: ${{ inputs.assets-config }}
       run: >-
-        python3 -m actionlib.java.audit --tag "$TAG" --assets "$ASSETS" --wait-minutes "$WAIT"
+        python3 -m actionlib.java.audit --tag "$TAG" --assets "$ASSETS" --root "$ROOT" --wait-minutes "$WAIT"
         ${CHECKS:+--checks "$CHECKS"} ${CONFIG:+--config "$CONFIG"} ${ASSETS_CONFIG:+--assets-config "$ASSETS_CONFIG"}

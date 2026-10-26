@@ -283,7 +283,11 @@ class NextAndSettingsTest(Fixture):
         _, files, _ = audit.expected_files(self.root)
         self.release(list(files) + ["upstream-b42-demo-1.2.0-src.tar.gz"])
         out = io.StringIO()
-        with patch.dict("os.environ", {"GITHUB_REPOSITORY": "o/r", "GITHUB_STEP_SUMMARY": ""}):
+        # the configuration comes from the current directory, not from the tag's checkout
+        (self.root / ".github/actions-config.json").write_text('{"post-release": {"unknown": 1}}')
+        workspace = self.root.parent / "workspace"
+        (workspace / ".github").mkdir(parents=True)
+        with patch.dict("os.environ", {"GITHUB_REPOSITORY": "o/r", "GITHUB_STEP_SUMMARY": ""}),                 patch("pathlib.Path.cwd", return_value=workspace):
             code = audit.main(["--root", str(self.root), "--tag", "v1.2.0", "--assets", str(self.assets),
                                "--checks", "assets"], github=FakeGitHub({}), out=out)
             self.assertEqual(code, 0, out.getvalue())

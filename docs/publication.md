@@ -174,7 +174,9 @@ uses the same frozen package. A network-interrupted GitHub release update is not
 The gate proves the package was complete when it was frozen; nothing above proves that Central
 published it, that the release still holds it, or that the run that made it was the one the tag
 names. `java/audit-publication` checks the published release the way a consumer meets it, without
-trusting the run, on a checkout of the tag (`lib/actionlib/java/audit.py`):
+trusting the run (`lib/actionlib/java/audit.py`). The contract, the POMs and the publish workflow
+come from a checkout of the tag (`root`), the configuration from the workspace -- so a release made
+before the audit existed can still be audited:
 
 | Check | Passes when |
 |---|---|

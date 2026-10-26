@@ -33,8 +33,9 @@ Configured in the ``post-release`` section of ``.github/actions-config.json``::
                      "signing-key": "<primary key fingerprint, 40 hex>",
                      "bytecode": [{"files": "demo-ffm-*.jar", "major": 66}, {"files": "*", "major": 52}]}
 
-Usage: python3 -m actionlib.java.audit --tag v1.2.3 --assets <dir> [--checks run,jobs,...]
-[--wait-minutes N]. Central is polled up to --wait-minutes for files it does not serve yet (it
+Usage: python3 -m actionlib.java.audit --tag v1.2.3 --assets <dir> [--root <checkout of the tag>]
+[--checks run,jobs,...] [--wait-minutes N]. The contract, the POMs and the publish workflow are read
+from --root, the configuration from the current directory. Central is polled up to --wait-minutes for files it does not serve yet (it
 publishes a validated bundle asynchronously); every other check runs once.
 """
 
@@ -503,8 +504,11 @@ def report(results, out=sys.stdout):
 def main(argv=None, github=None, out=sys.stdout):
     parser = argparse.ArgumentParser(prog="python3 -m actionlib.java.audit", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--root", default=".", help="a checkout of the tag (default: the current directory)")
-    parser.add_argument("--config", help=f"configuration file (default: {configuration.DEFAULT_PATH})")
+    parser.add_argument("--root", default=".",
+                        help="a checkout of the tag: its contract, POMs and publish workflow (default: the current "
+                             "directory). The configuration is read from the current directory, the repository "
+                             "running the audit, so an older release can be audited with today's settings")
+    parser.add_argument("--config", help=f"configuration file in the current directory (default: {configuration.DEFAULT_PATH})")
     parser.add_argument("--assets-config", help="release asset contract (default: .github/release-assets.json)")
     parser.add_argument("--tag", required=True, help="the release tag, v<version>")
     parser.add_argument("--assets", required=True, type=Path, help="the GitHub release files, downloaded")
@@ -519,8 +523,8 @@ def main(argv=None, github=None, out=sys.stdout):
     results = []
     try:
         root = Path(args.root).resolve()
-        conf = settings(root, args.config)
-        owner, name = configuration.repository(root)
+        conf = settings(Path.cwd(), args.config)
+        owner, name = configuration.repository(Path.cwd())
         repository = f"{owner}/{name}"
         version, files, patterns = expected_files(root, args.assets_config)
         if args.tag != f"v{version}":
