@@ -47,6 +47,7 @@ repository: a composite action can reach a sibling only through a hard-coded ref
 | `java/publish-github` | attaches the frozen GitHub files to the tag release or the rolling snapshot pre-release |
 | `java/attest-publication` | attests build provenance for every frozen GitHub file |
 | `java/check-publication` | the publication jobs are wired as documented, and the release asset contract collects what it promises (dry run, every pull request) |
+| `java/audit-publication` | audits a published release from the outside: the run and its jobs, the files against the contract, Maven Central, the signatures, the provenance of every file, the bytecode floors, the next development version ([docs/publication.md](docs/publication.md)) |
 | `java/check-maven-versions` | warns where a dependency or plugin differs from a sibling repository's default branch |
 | `java/maven-code-style` | spotless:check, spotbugs:check and the jdeps package graph |
 | `java/verify-bytecode` | no class above the allowed class-file version in the given jars |
@@ -87,7 +88,9 @@ workflow, which is not verified to work from a reusable workflow).
                       "exemptions": ".github/release-gate-exemptions.txt"},
      "run-scripts": {"patterns": [".github/workflows/*.yml", ".github/actions/*/action.yml"]},
      "maven-versions": {"poms": ["pom.xml"], "family": "java-maven", "ignore-groups": ["net.ladenthin"]},
-     "publication-wiring": {"workflow": ".github/workflows/publish.yml", "channels": ["snapshot", "release"]}
+     "publication-wiring": {"workflow": ".github/workflows/publish.yml", "channels": ["snapshot", "release"]},
+     "post-release": {"signing-key": "<primary key fingerprint>",
+                      "bytecode": [{"files": "*-ffm-*.jar", "major": 66}, {"files": "*", "major": 52}]}
    }
    ```
 
