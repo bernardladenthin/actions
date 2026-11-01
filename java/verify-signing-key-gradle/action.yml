@@ -39,7 +39,7 @@ runs:
       with:
         java-version-file: ${{ inputs.java-version-file }}
         distribution: ${{ inputs.java-distribution }}
-    - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6
+    - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6
       with:
         gradle-version: ${{ inputs.gradle-version }}
     - name: Sign a throwaway artifact via useInMemoryPgpKeys (BouncyCastle)
