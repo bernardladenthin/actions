@@ -113,6 +113,14 @@ renamed, a check that fails more) is a new major version, and the release notes 
 Repositories may sit on different releases for a while; `java/check-maven-versions` does not
 compare those pins, the Dependabot pull requests are the reminder.
 
+After a release, the next pull request moves the caller templates
+(`templates/*/.github/workflows/*.yml`) to it: they pin this repository by commit, with the
+version as comment (`@<commit> # v1.1.1`), so a repository written from them starts on a release
+that exists and its Dependabot takes over from there. Nothing moves them here: Dependabot has
+never opened a pull request for `templates/`, so their third-party pins are bumped by hand as
+well. `lib/tests/test_actions.py` holds every template ref to a commit and the templates to one
+release of this repository.
+
 ## Development
 
 ```bash

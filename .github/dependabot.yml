@@ -2,9 +2,10 @@
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
-# The pins of the reusable workflows (/), of every composite action (a directory each) and of the
-# workflow templates. A bump here reaches a repository when Dependabot there bumps its pin of
-# bernardladenthin/actions to the next release.
+# The pins of the reusable workflows (/) and of every composite action (a directory each). A bump
+# here reaches a repository when Dependabot there bumps its pin of bernardladenthin/actions to the
+# next release. The /templates/* entries have never produced a pull request: the pins of the
+# workflow templates are bumped by hand (README, "Versions").
 version: 2
 updates:
   - package-ecosystem: "github-actions"

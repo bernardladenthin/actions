@@ -74,6 +74,26 @@ class ActionsTest(unittest.TestCase):
                         local = target[len("bernardladenthin/actions/"):].split("@")[0]
                         self.assertTrue((ROOT / local).is_file(), local)
 
+    def test_every_workflow_template_pins_by_commit(self):
+        # A template is the text a new repository starts from (`templates --write`), so its refs
+        # have to resolve there: `@v1` did not, this repository never had a `v1` tag. Its own
+        # reusable workflows are pinned at one release, by commit and with the version as comment,
+        # which Dependabot in the new repository then moves; nothing moves them here (README).
+        self_pins = set()
+        for path in TEMPLATE_WORKFLOWS:
+            text = path.read_text(encoding="utf-8")
+            for target in USES.findall(text):
+                if target.startswith("./"):
+                    continue
+                with self.subTest(f"{path.relative_to(ROOT).as_posix()}: {target}"):
+                    self.assertRegex(target, PINNED)
+                if target.startswith("bernardladenthin/actions/"):
+                    self_pins.add(target.rsplit("@", 1)[1])
+                    with self.subTest(f"{path.relative_to(ROOT).as_posix()}: version comment"):
+                        self.assertRegex(text, re.escape(target) + r" # v\d+\.\d+\.\d+\n")
+        self.assertTrue(self_pins, "no template calls a reusable workflow of this repository")
+        self.assertEqual(len(self_pins), 1, f"the templates pin this repository at several commits: {sorted(self_pins)}")
+
     def test_the_readme_lists_every_action_and_reusable_workflow(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         for path in ACTIONS:
