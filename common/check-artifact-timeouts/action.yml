@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: 2026 Bernard Ladenthin <bernard.ladenthin@gmail.com>
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+name: Check the timeouts of the artifact transfers
+description: >-
+  Every actions/upload-artifact and actions/download-artifact step of the workflows carries
+  timeout-minutes fromJSON(env.ARTIFACT_TIMEOUT_MINUTES), and every workflow with such a step sets
+  ARTIFACT_TIMEOUT_MINUTES in its top-level env from the repository variable of that name with a
+  default (vars.ARTIFACT_TIMEOUT_MINUTES || '20'), so a hung transfer fails in minutes instead of
+  holding the job for GitHub's 360. The files are the artifact-timeouts patterns of
+  .github/actions-config.json (default: the workflows, scorecard.yml exempt). See
+  lib/actionlib/common/artifacttimeouts.py and the README.
+inputs:
+  config:
+    description: Configuration file, relative to the repository (default .github/actions-config.json).
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        PYTHONPATH: ${{ github.action_path }}/../../lib
+        CONFIG: ${{ inputs.config }}
+      run: python3 -m actionlib.common.artifacttimeouts ${CONFIG:+--config "$CONFIG"}

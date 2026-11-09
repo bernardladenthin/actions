@@ -39,6 +39,7 @@ repository: a composite action can reach a sibling only through a hard-coded ref
 | `common/check-templates` | the carried files equal their templates (sets, exclusions, relocations from the config) |
 | `common/check-release-gate` | every job of the publish workflow gates every publish job, or the exemptions file says why |
 | `common/check-run-scripts` | `bash -n` over every bash `run:` script of the workflows and actions |
+| `common/check-artifact-timeouts` | every `upload-artifact` / `download-artifact` step of the workflows has the timeout the repository variable `ARTIFACT_TIMEOUT_MINUTES` sets, with a default in the workflow ([below](#artifact-timeouts)) |
 | `common/print-host-info` | prints the runner's CPU (Linux, macOS, Windows) |
 | `common/verify-gpg-key` | imports the signing key and signs and verifies a throwaway payload, printing only public metadata |
 | `java/finalize-publication` | the gate of the signed Maven publication: collect, verify, freeze, secure ([docs/publication.md](docs/publication.md)) |
@@ -87,6 +88,8 @@ workflow, which is not verified to work from a reusable workflow).
                       "gates": ["publish-snapshot", "publish-release"],
                       "exemptions": ".github/release-gate-exemptions.txt"},
      "run-scripts": {"patterns": [".github/workflows/*.yml", ".github/actions/*/action.yml"]},
+     "artifact-timeouts": {"patterns": [".github/workflows/*.yml"],
+                           "exempt": {"scorecard.yml": "<reason>"}, "max-minutes": 30},
      "maven-versions": {"poms": ["pom.xml"], "family": "java-maven", "ignore-groups": ["net.ladenthin"]},
      "publication-wiring": {"workflow": ".github/workflows/publish.yml", "channels": ["snapshot", "release"]},
      "post-release": {"signing-key": "<primary key fingerprint>",
@@ -121,11 +124,38 @@ never opened a pull request for `templates/`, so their third-party pins are bump
 well. `lib/tests/test_actions.py` holds every template ref to a commit and the templates to one
 release of this repository.
 
+## Artifact timeouts
+
+An artifact transfer has no timeout of its own: in a Publish run of java-llama.cpp
+(42675444364) an `actions/upload-artifact` step hung for hours after a build of a minute and a
+half, and GitHub's 360 minutes were the only limit. The longest transfer measured over two
+complete runs of that pipeline took 18 s. `common/check-artifact-timeouts` holds every workflow
+to this shape:
+
+```yaml
+env:
+  ARTIFACT_TIMEOUT_MINUTES: ${{ vars.ARTIFACT_TIMEOUT_MINUTES || '20' }}
+jobs:
+  build:
+    steps:
+      - uses: actions/upload-artifact@<commit> # v7.x.y
+        timeout-minutes: ${{ fromJSON(env.ARTIFACT_TIMEOUT_MINUTES) }}
+```
+
+The value is the repository variable `ARTIFACT_TIMEOUT_MINUTES` (Settings, Secrets and variables,
+Actions, Variables) when it is set, else the default in the workflow (at most `max-minutes`, 30).
+A personal account has no variables above the repository; an organization's variable of that name
+applies to its repositories too. `fromJSON` makes the number `timeout-minutes` needs, so a variable
+that is not a whole number fails the run. A composite action cannot set `timeout-minutes` on its
+own steps, which is why the four publication actions that transfer artifacts are not covered: the
+step that calls one can carry a timeout.
+
 ## Development
 
 ```bash
 python3 -m unittest discover -s lib/tests -t lib     # the library, the actions' structure, the templates
 PYTHONPATH=lib python3 -m actionlib.common.runscripts # bash -n over this repository's run scripts
+PYTHONPATH=lib python3 -m actionlib.common.artifacttimeouts # the artifact steps carry the timeout
 ```
 
 `lib/tests/test_actions.py` holds every action and reusable workflow to what a consumer relies on:
