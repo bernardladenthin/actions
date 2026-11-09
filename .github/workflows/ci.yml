@@ -3,8 +3,9 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
 # The library tests (lib/tests: the checks, the publication, the templates, and the structure of
-# every action and reusable workflow) on the oldest Python the library supports and on the
-# runners' own, and bash -n over every run script of this repository's actions and workflows.
+# every action and reusable workflow) on the oldest Python the library supports (the oldest one
+# python.org still supports), on the runners' own (Ubuntu 26.04: 3.14) and on the newest release,
+# and bash -n over every run script of this repository's actions and workflows.
 # REUSE runs from reuse.yml, which is also a reusable workflow.
 name: CI
 on:
@@ -19,17 +20,11 @@ permissions:
 jobs:
   test:
     name: Library tests (Python ${{ matrix.python }})
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # The floor runs on Ubuntu 24.04: setup-python has no 3.9 for 26.04, which ubuntu-latest
-          # has been since 2026-11-08; every run of this workflow since then failed on that job.
-          - python: "3.9"
-            os: ubuntu-24.04
-          - python: "3.12"
-            os: ubuntu-latest
+        python: ["3.11", "3.14", "3.15"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:

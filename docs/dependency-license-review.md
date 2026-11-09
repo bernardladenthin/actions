@@ -67,7 +67,7 @@ It never treats a `LICENSE.class` bytecode file as a text license. BAF's assembl
 the srcmorph CLI run it before packaging, as `python3 -m actionlib.java.thirdpartylicenses` with
 `lib/` of this repository on `PYTHONPATH`: the POMs find this repository through `ACTIONS_DIR`
 (exported by `common/setup` and by the reusable SonarQube workflow) or, locally, as a checkout
-next to the repository (`../actions`); Python 3.9+ is needed on that build host.
+next to the repository (`../actions`); Python 3.11+ is needed on that build host.
 
 Both POMs do not call `-m` directly but wrap it in a `python3 -c` one-liner, so that a missing
 checkout says where `actionlib` was looked for instead of raising a `ModuleNotFoundError`. **The
