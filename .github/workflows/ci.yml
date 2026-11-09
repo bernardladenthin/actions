@@ -38,3 +38,7 @@ jobs:
         env:
           PYTHONPATH: lib
         run: python -m actionlib.common.runscripts
+      - name: Artifact steps carry the timeout
+        env:
+          PYTHONPATH: lib
+        run: python -m actionlib.common.artifacttimeouts
