@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: 2026 Bernard Ladenthin <bernard.ladenthin@gmail.com>
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+name: Check the Dependabot schedule and groups
+description: >-
+  Every entry of .github/dependabot.yml runs weekly on Saturday and has a group, so a week of
+  updates arrives as one pull request per ecosystem (one merge, one pipeline run on main) instead
+  of one per dependency. The rule is the dependabot section of .github/actions-config.json
+  (interval, day, groups; defaults weekly, saturday, true); a repository without the file fails.
+  See lib/actionlib/common/dependabot.py.
+inputs:
+  config:
+    description: Configuration file, relative to the repository (default .github/actions-config.json).
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        PYTHONPATH: ${{ github.action_path }}/../../lib
+        CONFIG: ${{ inputs.config }}
+      run: python3 -m actionlib.common.dependabot ${CONFIG:+--config "$CONFIG"}

@@ -40,6 +40,7 @@ repository: a composite action can reach a sibling only through a hard-coded ref
 | `common/check-release-gate` | every job of the publish workflow gates every publish job, or the exemptions file says why |
 | `common/check-run-scripts` | `bash -n` over every bash `run:` script of the workflows and actions |
 | `common/check-artifact-timeouts` | every `upload-artifact` / `download-artifact` step of the workflows has the timeout the repository variable `ARTIFACT_TIMEOUT_MINUTES` sets, with a default in the workflow ([below](#artifact-timeouts)) |
+| `common/check-dependabot` | every entry of `.github/dependabot.yml` runs weekly on Saturday and has a group ([below](#dependabot)) |
 | `common/print-host-info` | prints the runner's CPU (Linux, macOS, Windows) |
 | `common/verify-gpg-key` | imports the signing key and signs and verifies a throwaway payload, printing only public metadata |
 | `java/finalize-publication` | the gate of the signed Maven publication: collect, verify, freeze, secure ([docs/publication.md](docs/publication.md)) |
@@ -90,6 +91,7 @@ workflow, which is not verified to work from a reusable workflow).
      "run-scripts": {"patterns": [".github/workflows/*.yml", ".github/actions/*/action.yml"]},
      "artifact-timeouts": {"patterns": [".github/workflows/*.yml"],
                            "exempt": {"scorecard.yml": "<reason>"}, "max-minutes": 30},
+     "dependabot": {"interval": "weekly", "day": "saturday", "groups": true},
      "maven-versions": {"poms": ["pom.xml"], "family": "java-maven", "ignore-groups": ["net.ladenthin"]},
      "publication-wiring": {"workflow": ".github/workflows/publish.yml", "channels": ["snapshot", "release"]},
      "post-release": {"signing-key": "<primary key fingerprint>",
@@ -150,12 +152,28 @@ that is not a whole number fails the run. A composite action cannot set `timeout
 own steps, which is why the four publication actions that transfer artifacts are not covered: the
 step that calls one can carry a timeout.
 
+## Dependabot
+
+Dependabot reads `.github/dependabot.yml` from each repository's default branch and cannot take it
+from another repository, so every repository carries its own, and they differ: the Java template
+(`templates/java/.github/dependabot.yml`) covers one Maven build, BroomCabinet sixteen Maven and
+three pip projects, others only GitHub Actions. What they share is the rule, and
+`common/check-dependabot` holds every repository to it: each entry of `updates` runs
+`interval: weekly` on `day: saturday` and has at least one entry in `groups` (or names a
+`multi-ecosystem-group`). A week of updates is then one pull request per ecosystem, one merge and
+one run of the pipeline on main, instead of one per dependency. The `dependabot` section of
+`.github/actions-config.json` changes the rule (`interval`, `day`, or `null` for any day, `groups`);
+a repository without the file fails. The file is read with a small reader for the block style of
+these files; an anchor, a tag, a block scalar or a flow mapping fails the check instead of being
+guessed at.
+
 ## Development
 
 ```bash
 python3 -m unittest discover -s lib/tests -t lib     # the library, the actions' structure, the templates
 PYTHONPATH=lib python3 -m actionlib.common.runscripts # bash -n over this repository's run scripts
 PYTHONPATH=lib python3 -m actionlib.common.artifacttimeouts # the artifact steps carry the timeout
+PYTHONPATH=lib python3 -m actionlib.common.dependabot  # the Dependabot schedule and groups
 ```
 
 `lib/tests/test_actions.py` holds every action and reusable workflow to what a consumer relies on:
