@@ -20,7 +20,7 @@ more copy.
 | `java/<action>/` | composite actions for Maven and the JVM |
 | `.github/workflows/*.yml` | reusable workflows (`workflow_call`), flat because GitHub allows no subfolders there: `java-*` for Java, the rest language-neutral; `ci.yml` is this repository's own CI |
 | `templates/<set>/` | files a repository must carry, at the path they take there (`common`, `java`) |
-| `lib/actionlib/` | the Python library (standard library only, 3.9+): `common/` and `java/` like the actions |
+| `lib/actionlib/` | the Python library (standard library only, 3.11+): `common/` and `java/` like the actions |
 | `families/<name>.json` | groups of repositories that compare tool versions with each other |
 | `docs/` | `publication.md` (the signed Maven publication), `dependency-license-review.md` |
 

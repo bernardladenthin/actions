@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Bernard Ladenthin <bernard.ladenthin@gmail.com>
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
-"""The library behind bernardladenthin/actions. Standard library only, Python 3.9+.
+"""The library behind bernardladenthin/actions. Standard library only, Python 3.11+.
 
 Two subpackages, by what a module knows about:
 
