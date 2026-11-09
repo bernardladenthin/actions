@@ -19,11 +19,17 @@ permissions:
 jobs:
   test:
     name: Library tests (Python ${{ matrix.python }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.9", "3.12"]
+        include:
+          # The floor runs on Ubuntu 24.04: setup-python has no 3.9 for 26.04, which ubuntu-latest
+          # has been since 2026-11-08; every run of this workflow since then failed on that job.
+          - python: "3.9"
+            os: ubuntu-24.04
+          - python: "3.12"
+            os: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
