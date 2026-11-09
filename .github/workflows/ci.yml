@@ -42,3 +42,7 @@ jobs:
         env:
           PYTHONPATH: lib
         run: python -m actionlib.common.artifacttimeouts
+      - name: Dependabot runs weekly on Saturday, grouped
+        env:
+          PYTHONPATH: lib
+        run: python -m actionlib.common.dependabot

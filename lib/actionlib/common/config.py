@@ -10,6 +10,7 @@ One JSON object, one key per check, each optional where the check has defaults::
       "release-gate": {"workflow": ".github/workflows/publish.yml", "gates": [...], "exemptions": "..."},
       "run-scripts": {"patterns": [".github/workflows/*.yml", ...]},
       "artifact-timeouts": {"patterns": [".github/workflows/*.yml"], "exempt": {"scorecard.yml": "..."}, "max-minutes": 30},
+      "dependabot": {"interval": "weekly", "day": "saturday", "groups": true},
       "maven-versions": {"poms": ["pom.xml"], "family": "java-maven", "ignore-groups": ["net.ladenthin"]},
       "publication-wiring": {"workflow": ".github/workflows/publish.yml"},
       "post-release": {"signing-key": "<fingerprint>", "bytecode": [{"files": "*", "major": 52}]}
@@ -26,8 +27,8 @@ import subprocess
 from pathlib import Path
 
 DEFAULT_PATH = ".github/actions-config.json"
-SECTIONS = ("templates", "release-gate", "run-scripts", "artifact-timeouts", "maven-versions",
-            "publication-wiring", "post-release")
+SECTIONS = ("templates", "release-gate", "run-scripts", "artifact-timeouts", "dependabot",
+            "maven-versions", "publication-wiring", "post-release")
 REMOTE = re.compile(r"[:/]([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?$")
 
 
