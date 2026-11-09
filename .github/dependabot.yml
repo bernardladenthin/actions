@@ -5,7 +5,8 @@
 # The pins of the reusable workflows (/) and of every composite action (a directory each). A bump
 # here reaches a repository when Dependabot there bumps its pin of bernardladenthin/actions to the
 # next release. The /templates/* entries have never produced a pull request: the pins of the
-# workflow templates are bumped by hand (README, "Versions").
+# workflow templates are bumped by hand (README, "Versions"). Minor and patch updates of all
+# directories come as one pull request a week; a major update stays a pull request of its own.
 version: 2
 updates:
   - package-ecosystem: "github-actions"
@@ -16,3 +17,8 @@ updates:
       - "/templates/*"
     schedule:
       interval: "weekly"
+      day: "saturday"
+    groups:
+      github-actions:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
