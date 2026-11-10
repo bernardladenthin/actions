@@ -26,11 +26,15 @@ class FakeGitHub:
         self.tag = "snapshot"
         self.drafts = []
         self.refuse_ref_patch = None
+        self.refuse_ref_post = None
+        self.comparisons = {}
 
     def api(self, method, endpoint, payload=None, optional=False):
         self.calls.append((method, endpoint, payload))
         if method == "PATCH" and "/git/refs/tags/" in endpoint and self.refuse_ref_patch:
             raise RuntimeError(f"GitHub PATCH {endpoint}: {self.refuse_ref_patch}")
+        if method == "POST" and endpoint.endswith("/git/refs") and self.refuse_ref_post:
+            raise RuntimeError(f"GitHub POST {endpoint}: {self.refuse_ref_post}")
         if method == "DELETE" and "/git/refs/" in endpoint:
             return None
         if method == "DELETE" and int(endpoint.rsplit("/", 1)[1]) in self.fail_deletes:
@@ -41,7 +45,7 @@ class FakeGitHub:
             if endpoint.endswith(f"releases/tags/{self.tag}"):
                 return self.release
             if "/compare/" in endpoint:
-                return {"status": self.comparison}
+                return {"status": self.comparisons.get(endpoint.rsplit("/", 1)[1], self.comparison)}
             if "/git/tags/" in endpoint:
                 return {"object": {"type": "commit", "sha": OLD}}
             if "/assets?" in endpoint:
@@ -234,20 +238,51 @@ class SnapshotTest(unittest.TestCase):
             self.publish()
         self.assertEqual(self.gh.calls, [])
 
-    def test_a_refused_tag_move_deletes_and_recreates_the_tag(self):
+    def test_a_refused_tag_move_keeps_the_tag_and_still_publishes(self):
         self.gh.refuse_ref_patch = "gh: Resource not accessible by integration (HTTP 403)"
-        with patch("builtins.print"):
+        with patch("builtins.print") as printed:
             self.assertTrue(self.publish())
-        calls = [(c[0], c[1]) for c in self.gh.calls]
-        refused = calls.index(("PATCH", "repos/owner/repo/git/refs/tags/snapshot"))
-        self.assertEqual(calls[refused + 1:refused + 3],
-                         [("DELETE", "repos/owner/repo/git/refs/tags/snapshot"),
-                          ("POST", "repos/owner/repo/git/refs")])
-        self.assertEqual(self.gh.calls[refused + 2][2], {"ref": "refs/tags/snapshot", "sha": NEW})
+        # the tag is never deleted and never created anew: it stays where it was
+        self.assertFalse(any(c[0] == "DELETE" and "/git/refs/" in c[1] for c in self.gh.calls))
+        self.assertFalse(any(c[0] == "POST" and c[1].endswith("/git/refs") for c in self.gh.calls))
         notes = next(c for c in self.gh.calls if c[0] == "PATCH" and c[1].endswith("/releases/7"))
-        self.assertGreater(self.gh.calls.index(notes), refused + 2)
         self.assertEqual(notes[2]["tag_name"], "snapshot")
         self.assertFalse(notes[2]["draft"])
+        self.assertIn(OLD[:8], notes[2]["body"])
+        self.assertIn("refused to move", notes[2]["body"])
+        self.assertIn(f"<!-- snapshot-publish 10 1 {NEW} -->", notes[2]["body"])
+        self.assertTrue(any("::warning::" in str(c) for c in printed.call_args_list))
+        # the obsolete assets still go
+        self.assertTrue(any(c[0] == "DELETE" and c[1].endswith("/assets/1") for c in self.gh.calls))
+
+    def test_a_refused_tag_creation_is_left_to_the_release_update(self):
+        self.gh.ref = None
+        self.gh.refuse_ref_post = "gh: Resource not accessible by integration (HTTP 403)"
+        with patch("builtins.print") as printed:
+            self.assertTrue(self.publish())
+        self.assertFalse(any(c[0] == "DELETE" and "/git/refs/" in c[1] for c in self.gh.calls))
+        notes = next(c for c in self.gh.calls if c[0] == "PATCH" and c[1].endswith("/releases/7"))
+        self.assertEqual((notes[2]["tag_name"], notes[2]["target_commitish"]), ("snapshot", NEW))
+        self.assertFalse(notes[2]["draft"])
+        self.assertNotIn("refused", notes[2]["body"])
+        self.assertTrue(any("::warning::" in str(c) for c in printed.call_args_list))
+
+    def test_another_tag_creation_failure_is_raised(self):
+        self.gh.ref = None
+        self.gh.refuse_ref_post = "gh: Validation Failed (HTTP 422)"
+        with self.assertRaisesRegex(RuntimeError, "422"):
+            self.publish()
+        self.assertFalse(any(c[0] == "PATCH" and c[1].endswith("/releases/7") for c in self.gh.calls))
+
+    def test_an_older_build_is_measured_against_the_files_when_the_tag_lags(self):
+        # the tag was refused once and still names OLD; the notes name the newer commit the files
+        # are from, and a build older than that one must not replace them
+        newer = "c" * 40
+        self.gh.release = {"id": 7, "body": f"<!-- snapshot-publish 9 1 {newer} -->"}
+        self.gh.comparisons = {f"{OLD}...{NEW}": "ahead", f"{newer}...{NEW}": "behind"}
+        with patch("builtins.print"):
+            self.assertFalse(self.publish())
+        self.assertFalse(any(c[0] == "upload" for c in self.gh.calls))
 
     def test_another_tag_move_failure_is_not_turned_into_a_delete(self):
         self.gh.refuse_ref_patch = "gh: Validation Failed (HTTP 422)"
