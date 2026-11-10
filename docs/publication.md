@@ -137,8 +137,13 @@ repository is a draft until its upload is complete, so a failed first upload lea
 public pre-release nor a tag. The `snapshot` tag is moved with `PATCH git/refs`. GitHub refused that
 move with HTTP 403 ("Resource not accessible by integration") in java-llama.cpp run 40227501358,
 whose commit lay 12 changed workflow files past the old tag -- presumably the `workflows` permission
-the workflow token cannot hold. A 403 there deletes the tag and creates it again at the new commit,
-and the release update names the tag again.
+the workflow token cannot hold. A 403 there leaves the tag where it is: the pre-release is still
+published with the new files, its notes say which commit the tag still names, the job warns with the
+`git push --force` that moves it by hand, and a later build is measured against the commit in the
+notes as well as against the tag. The tag is never deleted to get around the refusal: v1.0.3 to
+v1.2.1 deleted it and created it again, the creation was refused as well in run 42708115919, and a
+pre-release without its tag is a draft, so the public snapshot was gone. A refused *creation* of a
+missing tag is left to the release update, which creates the tag at its target commit.
 
 The attestation action verifies the downloaded manifest first, then attests every frozen file in
 `publication-package/github/*`, including detached signatures and configured BOMs. It runs in the

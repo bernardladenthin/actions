@@ -106,6 +106,15 @@ def publish(repository, sha, run_id, attempt, assets_dir, complete, github=None,
         if marker and marker[3] == sha and (int(marker[1]), int(marker[2])) > (run_id, attempt):
             print("Snapshot already names a newer run/attempt of this commit; skipping.")
             return False
+        if marker and marker[3] != sha and (not published or marker[3] != published["sha"]):
+            # The tag can lag behind the files (a refused move, below): the notes name the commit
+            # the assets are from, so an older build is measured against that one as well.
+            comparison = gh.api("GET", f"{repo}/compare/{marker[3]}...{sha}")
+            if comparison["status"] == "behind":
+                print("Snapshot already holds a newer commit; skipping this older build.")
+                return False
+            if comparison["status"] not in ("ahead", "identical"):
+                raise ValueError("refusing to replace snapshot with a divergent commit")
 
     body = (f"Snapshot from [{sha[:8]}](https://github.com/{repository}/commit/{sha}).\n\n"
             f"[Publish run {run_id}, attempt {attempt}]"
@@ -124,22 +133,32 @@ def publish(repository, sha, run_id, attempt, assets_dir, complete, github=None,
             })
     gh.command("release", "upload", tag, *files, "--repo", repository, "--clobber")
 
-    if ref:
-        try:
+    # GitHub refuses the workflow token a tag write with 403 "Resource not accessible by
+    # integration" when workflow files changed between the two commits (java-llama.cpp runs
+    # 40227501358 and 42708115919; presumably the `workflows` permission, which that token cannot
+    # hold). The tag is never deleted to get around it: a deleted tag that cannot be created again
+    # turns the pre-release into a draft, which is what the second of those runs did. A refused move
+    # leaves the tag where it is, a refused creation leaves it to the release update below, which
+    # creates a missing tag at target_commitish; either way the notes say what happened.
+    stale = None
+    try:
+        if ref:
             gh.api("PATCH", f"{repo}/git/refs/tags/{tag}", {"sha": sha, "force": True})
-        except RuntimeError as error:
-            if "HTTP 403" not in str(error):
-                raise
-            # GitHub refused this move with 403 "Resource not accessible by integration" in
-            # java-llama.cpp run 40227501358 (12 changed workflow files between the two commits;
-            # presumably the `workflows` permission, which the workflow token cannot hold). Delete
-            # the tag and create it again at a commit the repository already has; the release
-            # PATCH below points the release at it again.
-            print(f"Moving tag {tag} was refused; deleting and re-creating it at {sha}.")
-            gh.api("DELETE", f"{repo}/git/refs/tags/{tag}")
+        else:
             gh.api("POST", f"{repo}/git/refs", {"ref": f"refs/tags/{tag}", "sha": sha})
-    else:
-        gh.api("POST", f"{repo}/git/refs", {"ref": f"refs/tags/{tag}", "sha": sha})
+    except RuntimeError as error:
+        if "HTTP 403" not in str(error):
+            raise
+        if ref:
+            stale = published["sha"]
+            print(f"::warning::GitHub refused to move the tag {tag} to {sha[:8]}; it still names "
+                  f"{stale[:8]}. The pre-release holds the files of {sha[:8]}. Move the tag by "
+                  f"hand: git push --force origin {sha}:refs/tags/{tag}")
+            body += (f"\n\nThe `{tag}` tag still names [{stale[:8]}]"
+                     f"(https://github.com/{repository}/commit/{stale}): GitHub refused to move it.")
+        else:
+            print(f"::warning::GitHub refused to create the tag {tag} at {sha[:8]}; publishing the "
+                  f"pre-release, which creates a missing tag itself.")
     gh.api("PATCH", f"{repo}/releases/{release['id']}", {
         "tag_name": tag, "target_commitish": sha, "name": title, "prerelease": True, "draft": False,
         "body": body
