@@ -23,7 +23,7 @@ inputs:
   gradle-version:
     description: The Gradle version that signs.
     required: false
-    default: 9.9.0
+    default: 9.9.1
   java-version-file:
     description: The JDK pin Gradle runs with.
     required: false

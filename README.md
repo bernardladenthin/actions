@@ -120,7 +120,7 @@ compare those pins, the Dependabot pull requests are the reminder.
 
 After a release, the next pull request moves the caller templates
 (`templates/*/.github/workflows/*.yml`) to it: they pin this repository by commit, with the
-version as comment (`@<commit> # v1.2.1`), so a repository written from them starts on a release
+version as comment (`@<commit> # v1.2.2`), so a repository written from them starts on a release
 that exists and its Dependabot takes over from there. Nothing moves them here: Dependabot has
 never opened a pull request for `templates/`, so their third-party pins are bumped by hand as
 well. `lib/tests/test_actions.py` holds every template ref to a commit and the templates to one
