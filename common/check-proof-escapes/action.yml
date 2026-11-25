@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: 2026 Bernard Ladenthin <bernard.ladenthin@gmail.com>
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+name: Check proofs for escape hatches
+description: >-
+  Fails when a machine-checked proof or specification (TLA+/TLAPS, Lean 4, Coq/Rocq, Isabelle,
+  Dafny, JML) contains a construct that makes the checker accept what it did not prove: sorry,
+  axioms, PROOF OMITTED, assume, switched-off checks. Exemptions, languages and exclusions are the
+  proof-escapes section of .github/actions-config.json; a scan without any proof file fails. The
+  syntactic class only -- see lib/actionlib/common/proofescapes.py for what it cannot catch.
+inputs:
+  config:
+    description: Configuration file, relative to the repository (default .github/actions-config.json).
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        PYTHONPATH: ${{ github.action_path }}/../../lib
+        CONFIG: ${{ inputs.config }}
+      run: python3 -m actionlib.common.proofescapes ${CONFIG:+--config "$CONFIG"}
