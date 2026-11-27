@@ -41,6 +41,7 @@ repository: a composite action can reach a sibling only through a hard-coded ref
 | `common/check-run-scripts` | `bash -n` over every bash `run:` script of the workflows and actions |
 | `common/check-artifact-timeouts` | every `upload-artifact` / `download-artifact` step of the workflows has the timeout the repository variable `ARTIFACT_TIMEOUT_MINUTES` sets, with a default in the workflow ([below](#artifact-timeouts)) |
 | `common/check-dependabot` | every entry of `.github/dependabot.yml` runs weekly on Saturday and has a group ([below](#dependabot)) |
+| `common/check-proof-escapes` | no escape hatch (`sorry`, `axiom`, `PROOF OMITTED`, `assume`, a switched-off check) in the TLA+, Lean, Coq, Isabelle, Dafny and JML sources, or an exemption with a reason says why ([below](#proof-escapes)) |
 | `common/print-host-info` | prints the runner's CPU (Linux, macOS, Windows) |
 | `common/verify-gpg-key` | imports the signing key and signs and verifies a throwaway payload, printing only public metadata |
 | `java/finalize-publication` | the gate of the signed Maven publication: collect, verify, freeze, secure ([docs/publication.md](docs/publication.md)) |
@@ -95,7 +96,10 @@ workflow, which is not verified to work from a reusable workflow).
      "maven-versions": {"poms": ["pom.xml"], "family": "java-maven", "ignore-groups": ["net.ladenthin"]},
      "publication-wiring": {"workflow": ".github/workflows/publish.yml", "channels": ["snapshot", "release"]},
      "post-release": {"signing-key": "<primary key fingerprint>",
-                      "bytecode": [{"files": "*-ffm-*.jar", "major": 66}, {"files": "*", "major": 52}]}
+                      "bytecode": [{"files": "*-ffm-*.jar", "major": 66}, {"files": "*", "major": 52}]},
+     "proof-escapes": {"languages": ["tla", "jml"], "exclude": ["vendor/**"],
+                       "exempt": [{"file": "src/main/jml/X.jml", "token": "assume", "count": 1,
+                                   "reason": "<why this one is acceptable>"}]}
    }
    ```
 
@@ -167,6 +171,29 @@ a repository without the file fails. The file is read with a small reader for th
 these files; an anchor, a tag, a block scalar or a flow mapping fails the check instead of being
 guessed at.
 
+## Proof escapes
+
+A machine-checked proof can be green and prove nothing: a `sorry` left in a Lean proof, an `axiom`
+added next to the theorem it then "proves", a `PROOF OMITTED` in a TLAPS module, an `assume` in a
+JML contract. Each is accepted by its checker, at most with a warning in a log.
+`common/check-proof-escapes` fails on them in the tracked `.tla`, `.lean`, `.v` (Coq only when the
+file looks like Coq, not Verilog), `.thy`, `.dfy` and `.jml` files and in the JML annotations of
+`.java` files, counting a token only outside comments and string literals. The table of tokens and
+why each one leaves a proof unchecked is `TOKENS` in `lib/actionlib/common/proofescapes.py`.
+
+The `proof-escapes` section of `.github/actions-config.json` picks the `languages` (default all;
+a listed language must have a file), `exclude`s globs, and `exempt`s an escape that is a decision
+rather than a defect: `{"file", "token", "count", "reason"}`, matched exactly. More or fewer
+occurrences than `count` fail, so a new escape cannot hide behind an old exemption, and an
+exemption that matches nothing fails as stale. A scan without a single file of an enabled language
+fails too (exit 2), which is why this repository, with no proofs, does not run it on itself.
+
+It covers the syntactic class only. A vacuous definition (a predicate defined as `True`), a
+specification that states the wrong thing, or an escape built by metaprogramming passes it; those
+need negative controls (mutants the proof must reject) and the checkers' own accounts of what a
+theorem rests on: `#print axioms` and lean4checker for Lean, `Print Assumptions` for Coq, tlapm's
+omitted obligations for TLAPS.
+
 ## Development
 
 ```bash
@@ -174,6 +201,7 @@ python3 -m unittest discover -s lib/tests -t lib     # the library, the actions'
 PYTHONPATH=lib python3 -m actionlib.common.runscripts # bash -n over this repository's run scripts
 PYTHONPATH=lib python3 -m actionlib.common.artifacttimeouts # the artifact steps carry the timeout
 PYTHONPATH=lib python3 -m actionlib.common.dependabot  # the Dependabot schedule and groups
+PYTHONPATH=lib python3 -m actionlib.common.proofescapes --root <repository> # escape hatches in its proofs
 ```
 
 `lib/tests/test_actions.py` holds every action and reusable workflow to what a consumer relies on:

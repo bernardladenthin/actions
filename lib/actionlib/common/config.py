@@ -13,7 +13,9 @@ One JSON object, one key per check, each optional where the check has defaults::
       "dependabot": {"interval": "weekly", "day": "saturday", "groups": true},
       "maven-versions": {"poms": ["pom.xml"], "family": "java-maven", "ignore-groups": ["net.ladenthin"]},
       "publication-wiring": {"workflow": ".github/workflows/publish.yml"},
-      "post-release": {"signing-key": "<fingerprint>", "bytecode": [{"files": "*", "major": 52}]}
+      "post-release": {"signing-key": "<fingerprint>", "bytecode": [{"files": "*", "major": 52}]},
+      "proof-escapes": {"languages": ["tla", "jml"], "exclude": ["vendor/**"],
+                        "exempt": [{"file": "X.jml", "token": "assume", "count": 1, "reason": "..."}]}
     }
 
 Unknown keys fail, at every level: a misspelt key would otherwise switch a check back to its
@@ -28,7 +30,7 @@ from pathlib import Path
 
 DEFAULT_PATH = ".github/actions-config.json"
 SECTIONS = ("templates", "release-gate", "run-scripts", "artifact-timeouts", "dependabot",
-            "maven-versions", "publication-wiring", "post-release")
+            "maven-versions", "publication-wiring", "post-release", "proof-escapes")
 REMOTE = re.compile(r"[:/]([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?$")
 
 
